@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Instruções — Experimento 1 (impressão)</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 2cm;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 2rem 1.5rem;
+      font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      font-size: 12.5pt;
+      line-height: 1.45;
+      color: #111;
+      max-width: 42rem;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    h1 {
+      font-size: 16pt;
+      text-align: center;
+      margin: 0 0 1.25rem;
+      letter-spacing: 0.02em;
+    }
+    p { margin: 0 0 0.85rem; }
+    .step {
+      margin: 0 0 1rem;
+    }
+    .step strong { display: inline; }
+    .example-box {
+      border: 1.5px solid #333;
+      padding: 0.85rem 1rem;
+      margin: 1rem 0 1.15rem;
+      text-align: center;
+      background: #f7f7f7;
+      font-size: 11pt;
+      color: #333;
+    }
+    .example-box .label {
+      font-weight: 600;
+      margin-bottom: 0.35rem;
+    }
+    .example-box .hint {
+      font-size: 10pt;
+      color: #555;
+    }
+    .footer {
+      margin-top: 1.5rem;
+      text-align: center;
+      font-weight: 700;
+      font-size: 12pt;
+    }
+    .meta {
+      margin-top: 2rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid #ccc;
+      font-size: 9.5pt;
+      color: #666;
+    }
+    @media print {
+      body { padding: 0; max-width: none; }
+      .no-print { display: none !important; }
+      .example-box { background: #fff; }
+    }
+    .toolbar {
+      margin-bottom: 1.25rem;
+      text-align: center;
+    }
+    .toolbar button {
+      font: inherit;
+      padding: 0.45rem 1rem;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar no-print">
+    <button type="button" onclick="window.print()">Imprimir / Guardar PDF</button>
+  </div>
+
+  <h1>LEIA AS INSTRUÇÕES COM ATENÇÃO!</h1>
+
+  <p>
+    Sua tarefa é encontrar a letra T entre várias letras L e indicar em qual lado ela estava.
+  </p>
+
+  <p class="step">
+    <strong>1. PREPARAÇÃO:</strong>
+    Olhe para o alvo central até ele desaparecer. Depois, olhe para a esquerda ou para a direita para escolher por onde começar.
+  </p>
+
+  <p class="step">
+    <strong>2. BUSCA:</strong>
+    Apenas um lado fica visível por vez. Para trocar, olhe para o lado vazio e aguarde.<br />
+    Procure o T entre os L (exemplo abaixo). O verde é só uma ajuda nesta ilustração:
+    durante a tarefa, as letras aparecerão todas em tons de cinza.
+  </p>
+
+  <div class="example-box">
+    <div class="label">Exemplo (na tela: caixa com L e um T verde)</div>
+    <div class="hint">
+      Na tarefa real, todas as letras ficam em tons de cinza — o verde aparece só nesta ilustração.
+    </div>
+  </div>
+
+  <p class="step">
+    <strong>3. RESPOSTA:</strong>
+    Ao encontrar o T, mantenha o olhar sobre ele e pressione ESPAÇO.<br />
+    O pequeno ponto acompanha a posição do seu olhar e ajuda a centralizá-lo no T.
+    Há um tempo limite para encontrar o T; se não o achar a tempo, a tarefa avançará.<br />
+    Depois, indique o lado em que ele estava: ← ESQUERDA | DIREITA →<br />
+    A tela ficará verde se você acertar e cinza se errar.<br />
+    Tente acertar o máximo possível.
+  </p>
+
+  <p class="footer">PRESSIONE A BARRA DE ESPAÇO PARA COMEÇAR.</p>
+
+  <p class="meta">
+    Forrageamento visual — Experimento 1 · Folha para impressão (mesmo texto das instruções no ecrã).
+  </p>
+</body>
+</html>

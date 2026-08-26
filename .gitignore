@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+.env
+
+# PsychoPy / local prefs & data
+forrageamento_prefs.json
+data/
+*.edf
+*.EDF
+
+# Node / Next.js (web)
+web/node_modules/
+web/.next/
+web/out/
+web/.env*.local
+
+# OS / editors
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+*.log
