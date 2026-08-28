@@ -3,6 +3,7 @@ import {
   TARGET_T_AOI_HALF_H_FRAC,
   TARGET_T_AOI_HALF_W_FRAC,
   TARGET_T_AOI_MIN_HALF_PX,
+  psychopyToCss,
 } from "./constants";
 import { PythonRandom } from "./python-random";
 
@@ -12,8 +13,33 @@ export interface LetterStim {
   y: number;
   letterH: number;
   color: readonly [number, number, number];
+  /** Cor CSS pré-calculada (evita alocação no loop de desenho). */
+  colorCss: string;
   orientation: number;
+  /** Orientação em radianos, já convertida para canvas. */
+  oriRad: number;
   visible: boolean;
+}
+
+function makeLetter(
+  char: "L" | "T",
+  x: number,
+  y: number,
+  letterH: number,
+  color: readonly [number, number, number],
+  orientation: number,
+): LetterStim {
+  return {
+    char,
+    x,
+    y,
+    letterH,
+    color,
+    colorCss: psychopyToCss(color),
+    orientation,
+    oriRad: (-orientation * Math.PI) / 180,
+    visible: true,
+  };
 }
 
 export interface PanelState {
@@ -47,7 +73,8 @@ function scatterPositionsInRect(
   for (let relax = 0; relax < 18; relax++) {
     const out: [number, number][] = [];
     const minD2 = md * md;
-    const maxAttempts = Math.max(12000, nPoints * 250);
+    // Cap attempts to keep panel rebuilds fluid in the browser.
+    const maxAttempts = Math.max(4000, nPoints * 80);
     let attempts = 0;
 
     while (out.length < nPoints && attempts < maxAttempts) {
@@ -55,7 +82,9 @@ function scatterPositionsInRect(
       const x = cx + rng.uniform(-halfW, halfW);
       const y = cy + rng.uniform(-halfH, halfH);
       let ok = true;
-      for (const [ox, oy] of out) {
+      // Check recent points first (cheaper early reject for dense packs).
+      for (let j = out.length - 1; j >= 0; j--) {
+        const [ox, oy] = out[j]!;
         const dx = x - ox;
         const dy = y - oy;
         if (dx * dx + dy * dy < minD2) {
@@ -140,28 +169,12 @@ export function buildExp2FixedLtPanel(
     const col = rng.choice(GRAYS_FOR_L);
 
     if (includeTarget && i === tSlot) {
-      const stim: LetterStim = {
-        char: "T",
-        x,
-        y,
-        letterH,
-        color: col,
-        orientation: ori,
-        visible: true,
-      };
+      const stim = makeLetter("T", x, y, letterH, col, ori);
       tLetter = stim;
       letters.push(stim);
       targetAoi = [x, y, hwT, hhT];
     } else {
-      const stim: LetterStim = {
-        char: "L",
-        x,
-        y,
-        letterH,
-        color: col,
-        orientation: ori,
-        visible: true,
-      };
+      const stim = makeLetter("L", x, y, letterH, col, ori);
       lLetters.push(stim);
       letters.push(stim);
     }
@@ -210,15 +223,10 @@ export function buildInstructionExamplePanel(
 
   positions.slice(0, nItems).forEach(([x, y], i) => {
     const isT = i === tIndex;
-    result.push({
-      char: isT ? "T" : "L",
-      x,
-      y,
-      letterH,
-      color: isT ? [-0.92, 0.62, -0.55] : rng.choice(GRAYS_FOR_L),
-      orientation: rng.choice(orientations),
-      visible: true,
-    });
+    const color = isT
+      ? ([-0.92, 0.62, -0.55] as const)
+      : rng.choice(GRAYS_FOR_L);
+    result.push(makeLetter(isT ? "T" : "L", x, y, letterH, color, rng.choice(orientations)));
   });
 
   return result;

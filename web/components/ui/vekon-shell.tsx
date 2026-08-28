@@ -18,7 +18,9 @@ export function VekonShell({ children, badge, showFooter = true }: VekonShellPro
             <div className="flex items-center gap-3">
               <VekonBrandMark />
               <div>
-                <p className="text-sm font-bold tracking-tight text-[#0f2847]">Vekon Research</p>
+                <p className="text-sm font-bold tracking-tight text-[#0f2847]">
+                  {studyConfig.researcher.name}
+                </p>
                 <p className="text-xs text-[#5a6b82]">{studyConfig.studyTitle}</p>
               </div>
             </div>
@@ -34,8 +36,14 @@ export function VekonShell({ children, badge, showFooter = true }: VekonShellPro
 
         {showFooter && (
           <footer className="pb-10 text-center text-xs leading-relaxed text-[#5a6b82]">
-            <p>Vekon Research · Pesquisa com seres humanos · LGPD · Res. CNS 510/2016</p>
-            <p className="mt-1">Dados transmitidos com criptografia (HTTPS). IP não coletado.</p>
+            <p>
+              {studyConfig.researcher.name} · Pesquisa com seres humanos · LGPD · Res. CNS
+              510/2016
+            </p>
+            <p className="mt-1">
+              Dados comportamentais (código anônimo) separados do consentimento · HTTPS · IP
+              não coletado pela aplicação
+            </p>
           </footer>
         )}
       </div>

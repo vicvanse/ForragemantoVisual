@@ -38,9 +38,9 @@ Os resultados são salvos em `../data/online/`:
 - `*_exp2_summary.csv` — resumo da sessão  
 - `*_signature.png` — assinatura do TCLE  
 
-## Design (Vekon)
+## Interface
 
-Interface **Vekon Research**: navy profundo, acentos ciano, cards em vidro, grid de fundo, tipografia Plus Jakarta Sans.
+Estudo de **Victor Correard** — layout navy, acentos ciano, cards em vidro, grid de fundo, tipografia Plus Jakarta Sans.
 
 Tokens: `lib/vekon/tokens.ts` · Shell: `components/ui/vekon-shell.tsx`
 

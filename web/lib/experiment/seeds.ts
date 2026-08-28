@@ -99,6 +99,13 @@ function sha256Pure(data: Uint8Array): Uint8Array {
   return out;
 }
 
+function digestToLayoutSeedBigInt(payload: string): bigint {
+  const digest = sha256Bytes(payload);
+  let val = 0n;
+  for (let i = 0; i < 8; i++) val = (val << 8n) | BigInt(digest[i]!);
+  return val;
+}
+
 export function stimulusLayoutSeed(
   participantId: string,
   experiment: number,
@@ -108,10 +115,25 @@ export function stimulusLayoutSeed(
   conditionTrialKey: string,
 ): number {
   const payload = `stim_layout|${participantId}|${experiment}|${sessionCondition}|${sessionRun}|${presentationIndex}|${(conditionTrialKey || "").trim()}`;
-  const digest = sha256Bytes(payload);
-  let val = 0n;
-  for (let i = 0; i < 8; i++) val = (val << 8n) | BigInt(digest[i]!);
-  return Number(val);
+  return Number(digestToLayoutSeedBigInt(payload));
+}
+
+/** Semente efetiva para random.Random no Python (máscara 63 bits → 32 bits). */
+export function stimulusLayoutRngSeed(
+  participantId: string,
+  experiment: number,
+  sessionCondition: number,
+  sessionRun: number,
+  presentationIndex: number,
+  conditionTrialKey: string,
+): number {
+  const payload = `stim_layout|${participantId}|${experiment}|${sessionCondition}|${sessionRun}|${presentationIndex}|${(conditionTrialKey || "").trim()}`;
+  return Number((digestToLayoutSeedBigInt(payload) & 0x7fffffffffffffffn) & 0xffffffffn);
+}
+
+/** Igual a Python: int(seed) & 0x7FFFFFFFFFFFFFFF (operadores & em JS truncam para 32 bits). */
+export function maskLayoutSeed(seed: number): number {
+  return Number(BigInt(Math.trunc(seed)) & 0x7fffffffffffffffn);
 }
 
 export function pickSessionIndex(seed: string, count: number): number {

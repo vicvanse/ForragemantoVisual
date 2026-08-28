@@ -60,6 +60,7 @@ export interface StudyMetadata {
   participantId: string;
   sessionCondition: number;
   sessionRun: number;
+  sequenceIndex: number;
   ratioLabel: string;
   mode: "online_mouse";
   viewportW: number;
@@ -67,6 +68,7 @@ export interface StudyMetadata {
   tcleVersion: string;
   submittedAt: string;
   platform: string;
+  emailHashSkipped: true;
   /** IP não coletado — princípio de minimização (CONEP / LGPD). */
   ipCollected: false;
 }
@@ -80,10 +82,12 @@ export interface SubmissionPayload {
 
 export type StudyStep =
   | "welcome"
+  | "hub"
   | "consent"
   | "instructions"
   | "checklist"
   | "experiment"
+  | "intermission"
   | "complete";
 
 export function eventsToCsv(rows: Exp2EventRow[]): string {

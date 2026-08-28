@@ -8,29 +8,19 @@ export function VekonBrandMark({ size = "md" }: VekonBrandMarkProps) {
   const dim = size === "sm" ? 36 : 44;
   return (
     <div
-      className="relative flex shrink-0 items-center justify-center rounded-xl"
+      className="relative flex shrink-0 items-center justify-center rounded-xl font-bold"
       style={{
         width: dim,
         height: dim,
         background: vekon.gradient.accent,
         boxShadow: vekon.shadow.glow,
+        color: vekon.colors.navy,
+        fontSize: size === "sm" ? 12 : 14,
+        letterSpacing: "-0.04em",
       }}
+      aria-hidden
     >
-      <svg
-        width={size === "sm" ? 20 : 24}
-        height={size === "sm" ? 20 : 24}
-        viewBox="0 0 24 24"
-        fill="none"
-        aria-hidden
-      >
-        <path
-          d="M4 12h16M12 4v16"
-          stroke={vekon.colors.navy}
-          strokeWidth="2.5"
-          strokeLinecap="round"
-        />
-        <circle cx="12" cy="12" r="3" fill={vekon.colors.navy} />
-      </svg>
+      VC
     </div>
   );
 }

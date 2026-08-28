@@ -8,8 +8,9 @@ const plusJakarta = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Forrageamento Visual — Experimento 2",
-  description: "Estudo online de forrageamento visual",
+  title: "Atenção dividida — Experimento online",
+  description:
+    "Estudo de Atenção dividida como escolha operante — IPUSP / LAEC — Víctor Correard Palmeira",
 };
 
 export default function RootLayout({

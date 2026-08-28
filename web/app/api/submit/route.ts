@@ -16,21 +16,18 @@ export async function POST(request: Request) {
     const dataDir = path.join(process.cwd(), "..", "data", "online");
     await mkdir(dataDir, { recursive: true });
 
-    // Minimização: payload de tarefa sem repetir assinatura em base64 no JSON principal
     const consent = body.consent;
-    const payloadForStorage = {
-      ...body,
-      consent: consent
-        ? {
-            ...consent,
-            signatureDataUrl: consent.signatureDataUrl ? "[stored_as_png]" : "",
-          }
-        : undefined,
+
+    // Dados comportamentais — sem nome/e-mail (minimização CONEP/LGPD)
+    const behavioralPayload = {
+      metadata: body.metadata,
+      events: body.events,
+      summary: body.summary,
     };
 
     await writeFile(
-      path.join(dataDir, `${baseName}_submission.json`),
-      JSON.stringify(payloadForStorage, null, 2),
+      path.join(dataDir, `${baseName}_behavior.json`),
+      JSON.stringify(behavioralPayload, null, 2),
       "utf8",
     );
 
@@ -38,6 +35,19 @@ export async function POST(request: Request) {
       await writeFile(
         path.join(dataDir, `${baseName}_consent.txt`),
         buildConsentArchiveText(consent),
+        "utf8",
+      );
+
+      await writeFile(
+        path.join(dataDir, `${baseName}_consent.json`),
+        JSON.stringify(
+          {
+            ...consent,
+            signatureDataUrl: consent.signatureDataUrl ? "[stored_as_png]" : "",
+          },
+          null,
+          2,
+        ),
         "utf8",
       );
     }

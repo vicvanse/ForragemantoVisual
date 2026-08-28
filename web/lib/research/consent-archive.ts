@@ -15,6 +15,8 @@ export function buildConsentArchiveText(record: ConsentRecord): string {
     `Maior de ${record.minAgeConfirmed ? "sim" : "não"} (${record.minAge}+ anos)`,
     "Consentimento: voluntário, livre e esclarecido",
     "",
+    "Nota: nome e e-mail deste arquivo não são vinculados aos arquivos comportamentais (behavior.json / CSV de eventos).",
+    "",
     "Assinatura digital registrada em formato PNG (anexo separado, se aplicável).",
   ].join("\n");
 }

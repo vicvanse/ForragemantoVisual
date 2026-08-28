@@ -5,7 +5,6 @@ import {
   useEffect,
   useRef,
   useState,
-  type MouseEvent as ReactMouseEvent,
 } from "react";
 import {
   COD_FIX_MS,
@@ -27,11 +26,12 @@ import {
   psychopyToCss,
   type Exp2SessionRow,
 } from "@/lib/experiment/constants";
-import { stimulusLayoutSeed } from "@/lib/experiment/seeds";
+import { stimulusLayoutRngSeed } from "@/lib/experiment/seeds";
 import {
   buildExp2FixedLtPanel,
   removeKLetters,
   visibleLLetters,
+  type LetterStim,
   type PanelState,
 } from "@/lib/experiment/panel-builder";
 import { PythonRandom } from "@/lib/experiment/python-random";
@@ -45,6 +45,15 @@ interface ExperimentCanvasProps {
   durationS?: number;
   onComplete: (events: Exp2EventRow[], summary: Exp2SummaryRow) => void;
 }
+
+const BG_CSS = psychopyToCss([-0.4, -0.4, -0.4]);
+const BORDER_CSS = psychopyToCss([0.12, 0.12, 0.12]);
+const INACTIVE_FILL_CSS = psychopyToCss(EXP2_INACTIVE_SIDE_FILL);
+const INACTIVE_LINE_CSS = psychopyToCss(EXP2_INACTIVE_SIDE_LINE);
+const DOT_FILL_CSS = psychopyToCss(GAZE_DOT_FILL);
+const DOT_LINE_CSS = psychopyToCss(GAZE_DOT_LINE);
+const FIX_THR_S = TARGET_FIX_MS / 1000;
+const COD_GREY_S = DEFAULT_COD_GREY_MS / 1000;
 
 function canvasToPsychopy(
   canvasX: number,
@@ -86,45 +95,54 @@ function appendEvent(
   });
 }
 
-function drawLetter(
-  ctx: CanvasRenderingContext2D,
-  letter: {
-    char: string;
-    x: number;
-    y: number;
-    letterH: number;
-    color: readonly [number, number, number];
-    orientation: number;
-    visible: boolean;
-  },
+/** Desenha letras no buffer offscreen (só quando o painel muda). */
+function paintPanelCache(
+  cache: HTMLCanvasElement,
+  panel: PanelState,
   sw: number,
   sh: number,
-) {
-  if (!letter.visible) return;
+): void {
+  if (cache.width !== sw || cache.height !== sh) {
+    cache.width = sw;
+    cache.height = sh;
+  }
+  const ctx = cache.getContext("2d", { alpha: false });
+  if (!ctx) return;
+
+  ctx.fillStyle = BG_CSS;
+  ctx.fillRect(0, 0, sw, sh);
+
+  const left = panel.cx - panel.panelW / 2 + sw / 2;
+  const top = sh / 2 - (panel.cy + panel.panelH / 2);
+  ctx.strokeStyle = BORDER_CSS;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(left - 2, top - 2, panel.panelW + 4, panel.panelH + 4);
+
+  const letters = panel.letters;
+  for (let i = 0; i < letters.length; i++) {
+    const letter = letters[i]!;
+    if (!letter.visible) continue;
+    drawLetterFast(ctx, letter, sw, sh);
+  }
+}
+
+function drawLetterFast(
+  ctx: CanvasRenderingContext2D,
+  letter: LetterStim,
+  sw: number,
+  sh: number,
+): void {
   const cx = letter.x + sw / 2;
   const cy = sh / 2 - letter.y;
   ctx.save();
   ctx.translate(cx, cy);
-  ctx.rotate((-letter.orientation * Math.PI) / 180);
-  ctx.fillStyle = psychopyToCss(letter.color);
-  ctx.font = `bold ${letter.letterH}px Arial, sans-serif`;
+  if (letter.oriRad !== 0) ctx.rotate(letter.oriRad);
+  ctx.fillStyle = letter.colorCss;
+  ctx.font = `bold ${letter.letterH | 0}px Arial,sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(letter.char, 0, 0);
   ctx.restore();
-}
-
-function drawPanelBorder(
-  ctx: CanvasRenderingContext2D,
-  panel: PanelState,
-  sw: number,
-  sh: number,
-) {
-  const left = panel.cx - panel.panelW / 2 + sw / 2;
-  const top = sh / 2 - (panel.cy + panel.panelH / 2);
-  ctx.strokeStyle = psychopyToCss([0.12, 0.12, 0.12]);
-  ctx.lineWidth = 2;
-  ctx.strokeRect(left - 2, top - 2, panel.panelW + 4, panel.panelH + 4);
 }
 
 function drawInactiveMarker(
@@ -134,12 +152,12 @@ function drawInactiveMarker(
   sc: number,
   sw: number,
   sh: number,
-) {
+): void {
   const side = Math.max(36, 52 * sc);
   const x = cx + sw / 2 - side / 2;
   const y = sh / 2 - cy - side / 2;
-  ctx.fillStyle = psychopyToCss(EXP2_INACTIVE_SIDE_FILL);
-  ctx.strokeStyle = psychopyToCss(EXP2_INACTIVE_SIDE_LINE);
+  ctx.fillStyle = INACTIVE_FILL_CSS;
+  ctx.strokeStyle = INACTIVE_LINE_CSS;
   ctx.lineWidth = Math.max(1, 2 * sc);
   ctx.fillRect(x, y, side, side);
   ctx.strokeRect(x, y, side, side);
@@ -155,6 +173,7 @@ export function ExperimentCanvas({
 }: ExperimentCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const panelCacheRef = useRef<HTMLCanvasElement | null>(null);
   const [ready, setReady] = useState(false);
   const [countdown, setCountdown] = useState(3);
   const stateRef = useRef<ReturnType<typeof createSessionState> | null>(null);
@@ -179,30 +198,28 @@ export function ExperimentCanvas({
     const initialRight = sessionRow.n_L_right;
     const kDecay = exp2DecayKPerPanel();
 
-    const decaySeed =
-      stimulusLayoutSeed(
-        participantId,
-        2,
-        sessionCondition,
-        sessionRun,
-        999,
-        `exp2_decay_shuffle|${ratioLabel}`,
-      ) & 0x7fffffffffffffff;
+    const decaySeed = stimulusLayoutRngSeed(
+      participantId,
+      2,
+      sessionCondition,
+      sessionRun,
+      999,
+      `exp2_decay_shuffle|${ratioLabel}`,
+    );
 
     const decayRng = new PythonRandom(decaySeed);
     const layoutPresIndex = { left: 0, right: 0 };
 
     function rebuildSide(side: "left" | "right", nL: number): PanelState {
       const presIdx = layoutPresIndex[side];
-      const seed =
-        stimulusLayoutSeed(
-          participantId,
-          2,
-          sessionCondition,
-          sessionRun,
-          presIdx,
-          side === "left" ? `exp2fixL|${ratioLabel}` : `exp2fixR|${ratioLabel}`,
-        ) & 0x7fffffffffffffff;
+      const seed = stimulusLayoutRngSeed(
+        participantId,
+        2,
+        sessionCondition,
+        sessionRun,
+        presIdx,
+        side === "left" ? `exp2fixL|${ratioLabel}` : `exp2fixR|${ratioLabel}`,
+      );
       const rng = new PythonRandom(seed);
       const cx = side === "left" ? leftCx : rightCx;
       return buildExp2FixedLtPanel(cx, 0, panelW, panelH, nL, true, rng);
@@ -336,6 +353,14 @@ export function ExperimentCanvas({
       spacePressed: false,
       running: false,
       plannedDuration,
+      panelDirty: true,
+      lastHudSec: -1,
+      hudText: "",
+      pointsHud: "Pontos: 0",
+      hudFont: "",
+      timerFont: "",
+      dotR: 4,
+      inactiveSide: Math.max(36, 52 * sc),
     };
   }
 
@@ -409,15 +434,43 @@ export function ExperimentCanvas({
 
     function resize() {
       const canvas = canvasRef.current;
-      if (!canvas) return;
-      const rect = container!.getBoundingClientRect();
-      canvas.width = Math.floor(rect.width);
-      canvas.height = Math.floor(rect.height);
+      if (!canvas || !container) return;
+      const rect = container.getBoundingClientRect();
+      // Cap DPR to keep redraws light on HiDPI screens.
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      const cssW = Math.max(1, Math.floor(rect.width));
+      const cssH = Math.max(1, Math.floor(rect.height));
+      canvas.style.width = `${cssW}px`;
+      canvas.style.height = `${cssH}px`;
+      canvas.width = Math.floor(cssW * dpr);
+      canvas.height = Math.floor(cssH * dpr);
+
+      const ctx = canvas.getContext("2d", { alpha: false });
+      if (ctx) {
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.imageSmoothingEnabled = false;
+      }
+
+      if (!panelCacheRef.current) {
+        panelCacheRef.current = document.createElement("canvas");
+      }
+
       if (!stateRef.current) {
-        stateRef.current = createSessionState(canvas.width, canvas.height);
+        stateRef.current = createSessionState(cssW, cssH);
+        stateRef.current.hudFont = `bold ${Math.max(18, 26 * stateRef.current.sc)}px Arial,sans-serif`;
+        stateRef.current.timerFont = `${Math.max(12, 16 * stateRef.current.sc)}px Arial,sans-serif`;
+        stateRef.current.dotR = Math.max(3, GAZE_DOT_RADIUS_PX * stateRef.current.sc);
+        stateRef.current.panelDirty = true;
       } else {
-        stateRef.current.sw = canvas.width;
-        stateRef.current.sh = canvas.height;
+        const s = stateRef.current;
+        s.sw = cssW;
+        s.sh = cssH;
+        s.sc = layoutScale(cssW, cssH);
+        s.hudFont = `bold ${Math.max(18, 26 * s.sc)}px Arial,sans-serif`;
+        s.timerFont = `${Math.max(12, 16 * s.sc)}px Arial,sans-serif`;
+        s.dotR = Math.max(3, GAZE_DOT_RADIUS_PX * s.sc);
+        s.inactiveSide = Math.max(36, 52 * s.sc);
+        s.panelDirty = true;
       }
       setReady(true);
     }
@@ -441,13 +494,18 @@ export function ExperimentCanvas({
     const state = stateRef.current;
     if (!canvas || !state) return;
 
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", { alpha: false });
     if (!ctx) return;
+
+    if (!panelCacheRef.current) {
+      panelCacheRef.current = document.createElement("canvas");
+    }
 
     state.sessionStart = performance.now() / 1000;
     state.lastSplitT = state.sessionStart;
     state.lastFrameT = state.sessionStart;
     state.running = true;
+    state.panelDirty = true;
 
     function tick() {
       const s = stateRef.current;
@@ -462,14 +520,16 @@ export function ExperimentCanvas({
           s.activeSide = s.activeSide === "left" ? "right" : "left";
           s.inactiveDwellEntry = null;
           s.lastSplitT = now;
+          s.panelDirty = true;
         } else {
-          ctx.fillStyle = psychopyToCss([-0.4, -0.4, -0.4]);
+          ctx.fillStyle = BG_CSS;
           ctx.fillRect(0, 0, s.sw, s.sh);
           rafRef.current = requestAnimationFrame(tick);
           return;
         }
       }
 
+      let decayed = false;
       while (s.nextDecayAt <= Math.min(tSess, s.plannedDuration)) {
         const remL = removeKLetters(s.leftPanel, s.kDecay, s.decayRng);
         const remR = removeKLetters(s.rightPanel, s.kDecay, s.decayRng);
@@ -490,7 +550,9 @@ export function ExperimentCanvas({
           `removed_L=${remL}/${remR}`,
         );
         s.nextDecayAt += 1;
+        decayed = true;
       }
+      if (decayed) s.panelDirty = true;
 
       if (tSess >= s.plannedDuration) {
         finishSession(s, false);
@@ -529,9 +591,9 @@ export function ExperimentCanvas({
           );
           s.codSwitchCount++;
           s.inCodGrey = true;
-          s.codGreyUntil = now + DEFAULT_COD_GREY_MS / 1000;
+          s.codGreyUntil = now + COD_GREY_S;
           s.inactiveDwellEntry = null;
-          ctx.fillStyle = psychopyToCss([-0.4, -0.4, -0.4]);
+          ctx.fillStyle = BG_CSS;
           ctx.fillRect(0, 0, s.sw, s.sh);
           rafRef.current = requestAnimationFrame(tick);
           return;
@@ -540,51 +602,41 @@ export function ExperimentCanvas({
         s.inactiveDwellEntry = null;
       }
 
-      let inLeft =
-        s.leftPanel.targetAoi !== null &&
-        inRect(
-          gx,
-          gy,
-          s.leftPanel.targetAoi[0],
-          s.leftPanel.targetAoi[1],
-          s.leftPanel.targetAoi[2],
-          s.leftPanel.targetAoi[3],
-        );
-      let inRight =
-        s.rightPanel.targetAoi !== null &&
-        inRect(
-          gx,
-          gy,
-          s.rightPanel.targetAoi[0],
-          s.rightPanel.targetAoi[1],
-          s.rightPanel.targetAoi[2],
-          s.rightPanel.targetAoi[3],
-        );
-
-      if (inLeft && inRight) {
-        if (gx < 0) inRight = false;
-        else inLeft = false;
-      }
-      if (s.activeSide === "left") inRight = false;
-      else inLeft = false;
+      // Só testa AOI do lado ativo (menos trabalho por frame).
+      const activePanel = s.activeSide === "left" ? s.leftPanel : s.rightPanel;
+      const aoi = activePanel.targetAoi;
+      const inTarget =
+        aoi !== null && inRect(gx, gy, aoi[0], aoi[1], aoi[2], aoi[3]);
 
       const dt = Math.min(Math.max(now - s.lastFrameT, 0), 0.1) || 1 / 60;
       s.lastFrameT = now;
 
-      if (inLeft) s.targetFixLeft += dt;
-      else s.targetFixLeft = 0;
-      if (inRight) s.targetFixRight += dt;
-      else s.targetFixRight = 0;
+      if (s.activeSide === "left") {
+        if (inTarget) s.targetFixLeft += dt;
+        else s.targetFixLeft = 0;
+        s.targetFixRight = 0;
+      } else {
+        if (inTarget) s.targetFixRight += dt;
+        else s.targetFixRight = 0;
+        s.targetFixLeft = 0;
+      }
 
-      const fixThr = TARGET_FIX_MS / 1000;
       if (s.spacePressed) {
         s.spacePressed = false;
         let reinforced: "left" | "right" | null = null;
-        if (inLeft && s.targetFixLeft >= fixThr) reinforced = "left";
-        else if (inRight && s.targetFixRight >= fixThr) reinforced = "right";
+        if (s.activeSide === "left" && inTarget && s.targetFixLeft >= FIX_THR_S) {
+          reinforced = "left";
+        } else if (
+          s.activeSide === "right" &&
+          inTarget &&
+          s.targetFixRight >= FIX_THR_S
+        ) {
+          reinforced = "right";
+        }
 
         if (reinforced) {
           s.pointsTotal++;
+          s.pointsHud = `Pontos: ${s.pointsTotal}`;
           if (reinforced === "left") {
             s.layoutPresIndex.left++;
             s.nLLeft = s.initialLeft;
@@ -596,6 +648,7 @@ export function ExperimentCanvas({
           }
           s.targetFixLeft = 0;
           s.targetFixRight = 0;
+          s.panelDirty = true;
           appendEvent(
             s.events,
             participantId,
@@ -613,44 +666,51 @@ export function ExperimentCanvas({
         }
       }
 
-      ctx.fillStyle = psychopyToCss([-0.4, -0.4, -0.4]);
-      ctx.fillRect(0, 0, s.sw, s.sh);
-
-      const activePanel = s.activeSide === "left" ? s.leftPanel : s.rightPanel;
-      const inactiveCx = s.activeSide === "left" ? s.rightCx : s.leftCx;
-
-      drawPanelBorder(ctx, activePanel, s.sw, s.sh);
-      for (const letter of activePanel.letters) {
-        drawLetter(ctx, letter, s.sw, s.sh);
+      const cache = panelCacheRef.current;
+      if (cache && s.panelDirty) {
+        paintPanelCache(cache, activePanel, s.sw, s.sh);
+        s.panelDirty = false;
       }
+
+      if (cache) {
+        ctx.drawImage(cache, 0, 0, s.sw, s.sh);
+      } else {
+        ctx.fillStyle = BG_CSS;
+        ctx.fillRect(0, 0, s.sw, s.sh);
+      }
+
+      const inactiveCx = s.activeSide === "left" ? s.rightCx : s.leftCx;
       drawInactiveMarker(ctx, inactiveCx, 0, s.sc, s.sw, s.sh);
 
       ctx.fillStyle = "rgb(242, 242, 140)";
-      ctx.font = `bold ${Math.max(18, 26 * s.sc)}px Arial, sans-serif`;
+      ctx.font = s.hudFont;
       ctx.textAlign = "center";
-      ctx.fillText(`Pontos: ${s.pointsTotal}`, s.sw / 2, s.sh * 0.08);
+      ctx.textBaseline = "alphabetic";
+      ctx.fillText(s.pointsHud, s.sw / 2, s.sh * 0.08);
 
       const remaining = Math.max(0, s.plannedDuration - tSess);
-      const mins = Math.floor(remaining / 60);
-      const secs = Math.floor(remaining % 60);
+      const secFloor = remaining | 0;
+      if (secFloor !== s.lastHudSec) {
+        s.lastHudSec = secFloor;
+        const mins = (secFloor / 60) | 0;
+        const secs = secFloor % 60;
+        s.hudText = `${mins}:${secs < 10 ? `0${secs}` : secs} restantes`;
+      }
       ctx.fillStyle = "rgba(255,255,255,0.55)";
-      ctx.font = `${Math.max(12, 16 * s.sc)}px Arial, sans-serif`;
-      ctx.fillText(
-        `${mins}:${secs.toString().padStart(2, "0")} restantes`,
-        s.sw / 2,
-        s.sh * 0.94,
-      );
+      ctx.font = s.timerFont;
+      ctx.fillText(s.hudText, s.sw / 2, s.sh * 0.94);
 
-      const dotR = Math.max(3, GAZE_DOT_RADIUS_PX * s.sc);
-      const dotX = gx + s.sw / 2;
-      const dotY = s.sh / 2 - gy;
-      ctx.beginPath();
-      ctx.arc(dotX, dotY, dotR, 0, Math.PI * 2);
-      ctx.fillStyle = psychopyToCss(GAZE_DOT_FILL);
-      ctx.fill();
-      ctx.strokeStyle = psychopyToCss(GAZE_DOT_LINE);
-      ctx.lineWidth = Math.max(1, 1.5 * s.sc);
-      ctx.stroke();
+      if (Number.isFinite(gx) && Number.isFinite(gy)) {
+        const dotX = gx + s.sw / 2;
+        const dotY = s.sh / 2 - gy;
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, s.dotR, 0, Math.PI * 2);
+        ctx.fillStyle = DOT_FILL_CSS;
+        ctx.fill();
+        ctx.strokeStyle = DOT_LINE_CSS;
+        ctx.lineWidth = Math.max(1, 1.5 * s.sc);
+        ctx.stroke();
+      }
 
       rafRef.current = requestAnimationFrame(tick);
     }
@@ -678,15 +738,33 @@ export function ExperimentCanvas({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  function handleMouseMove(e: ReactMouseEvent<HTMLCanvasElement>) {
+  useEffect(() => {
     const canvas = canvasRef.current;
-    const state = stateRef.current;
-    if (!canvas || !state) return;
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    [state.gazeX, state.gazeY] = canvasToPsychopy(x, y, state.sw, state.sh);
-  }
+    if (!canvas) return;
+
+    function onPointerMove(e: PointerEvent) {
+      const state = stateRef.current;
+      if (!state) return;
+      // offsetX/Y evita getBoundingClientRect a cada movimento.
+      const x = e.offsetX;
+      const y = e.offsetY;
+      [state.gazeX, state.gazeY] = canvasToPsychopy(x, y, state.sw, state.sh);
+    }
+
+    function onPointerLeave() {
+      if (stateRef.current) {
+        stateRef.current.gazeX = Infinity;
+        stateRef.current.gazeY = Infinity;
+      }
+    }
+
+    canvas.addEventListener("pointermove", onPointerMove, { passive: true });
+    canvas.addEventListener("pointerleave", onPointerLeave);
+    return () => {
+      canvas.removeEventListener("pointermove", onPointerMove);
+      canvas.removeEventListener("pointerleave", onPointerLeave);
+    };
+  }, [ready]);
 
   return (
     <div ref={containerRef} className="relative h-[100dvh] w-full bg-[#666]">
@@ -695,22 +773,12 @@ export function ExperimentCanvas({
           <p className="text-lg opacity-80">A sessão começa em</p>
           <p className="mt-2 text-6xl font-bold tabular-nums">{countdown}</p>
           <p className="mt-4 max-w-md px-6 text-center text-sm opacity-70">
-            Mova o mouse para controlar o ponto branco. Pressione Espaço sobre o
-            T para pontuar.
+            Mova o mouse para controlar o ponteiro na tela. Pressione Espaço sobre o T
+            para pontuar.
           </p>
         </div>
       )}
-      <canvas
-        ref={canvasRef}
-        className="h-full w-full cursor-none"
-        onMouseMove={handleMouseMove}
-        onMouseLeave={() => {
-          if (stateRef.current) {
-            stateRef.current.gazeX = Infinity;
-            stateRef.current.gazeY = Infinity;
-          }
-        }}
-      />
+      <canvas ref={canvasRef} className="h-full w-full cursor-none touch-none" />
     </div>
   );
 }

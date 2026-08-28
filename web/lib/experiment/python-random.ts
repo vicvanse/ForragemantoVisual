@@ -1,6 +1,6 @@
 /**
- * PRNG determinístico compatível em espírito com Python random.Random.
- * Usa MT19937 com inicialização por inteiro de 64 bits.
+ * PRNG compatível com Python 3 random.Random (MT19937 + init_by_array).
+ * random.Random(int) usa apenas os 32 bits baixos da semente.
  */
 export class PythonRandom {
   private mt = new Uint32Array(624);
@@ -11,35 +11,37 @@ export class PythonRandom {
   }
 
   seed(a: number): void {
-    const s = BigInt(Math.trunc(a)) & 0xffffffffffffffffn;
-    const key = [Number(s & 0xffffffffn), Number((s >> 32n) & 0xffffffffn)];
+    const key = [Number(BigInt(Math.trunc(a)) & 0xffffffffn)];
     this.initByArray(key);
+  }
+
+  private initGenrand(seed: number): void {
+    this.mt[0] = seed >>> 0;
+    for (let i = 1; i < 624; i++) {
+      this.mt[i] =
+        (1812433253 * (this.mt[i - 1]! ^ (this.mt[i - 1]! >>> 30)) + i) >>> 0;
+    }
   }
 
   private initByArray(initKey: number[]): void {
     const N = 624;
-    const M = 397;
     const MATRIX_A = 0x9908b0df;
     const UPPER_MASK = 0x80000000;
     const LOWER_MASK = 0x7fffffff;
 
-    this.mt[0] = 19650218;
-    for (let i = 1; i < N; i++) {
-      this.mt[i] =
-        (1812433253 * (this.mt[i - 1]! ^ (this.mt[i - 1]! >>> 30)) + i) >>> 0;
-    }
+    this.initGenrand(19650218);
 
     let i = 1;
     let j = 0;
     let k = Math.max(N, initKey.length);
+
     for (; k; k--) {
+      const prev = this.mt[i - 1]!;
+      const y = (prev & UPPER_MASK) | ((prev & LOWER_MASK) >>> 1);
+      const matrix = prev & 1 ? MATRIX_A : 0;
       this.mt[i] =
-        (this.mt[i]! ^
-          ((this.mt[i - 1]! & UPPER_MASK) | (this.mt[i - 1]! & LOWER_MASK) >> 1) ^
-          (this.mt[i - 1]! & 1 ? MATRIX_A : 0) +
-          initKey[j]! +
-          i) >>>
-        0;
+        (this.mt[i]! ^ y ^ matrix) + initKey[j]! + j;
+      this.mt[i]! >>>= 0;
       i++;
       j++;
       if (i >= N) {
@@ -50,12 +52,11 @@ export class PythonRandom {
     }
 
     for (k = N - 1; k; k--) {
-      this.mt[i] =
-        (this.mt[i]! ^
-          ((this.mt[i - 1]! & UPPER_MASK) | (this.mt[i - 1]! & LOWER_MASK) >> 1) ^
-          (this.mt[i - 1]! & 1 ? MATRIX_A : 0) -
-          i) >>>
-        0;
+      const prev = this.mt[i - 1]!;
+      const y = (prev & UPPER_MASK) | ((prev & LOWER_MASK) >>> 1);
+      const matrix = prev & 1 ? MATRIX_A : 0;
+      this.mt[i] = (this.mt[i]! ^ y ^ matrix) - i;
+      this.mt[i]! >>>= 0;
       i++;
       if (i >= N) {
         this.mt[0] = this.mt[N - 1]!;

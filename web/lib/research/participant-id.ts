@@ -1,10 +1,7 @@
-import { sanitizeParticipantId } from "@/lib/experiment/constants";
-
-/** Código anônimo — não derivado de nome ou e-mail (CONEP / minimização de dados). */
+/** Código numérico anônimo (ex.: 0047) — não derivado de nome ou e-mail. */
 export function generateAnonymousParticipantId(): string {
-  const bytes = new Uint8Array(8);
+  const bytes = new Uint8Array(2);
   crypto.getRandomValues(bytes);
-  const hex = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
-  const ts = Date.now().toString(36);
-  return sanitizeParticipantId(`P_${ts}_${hex}`);
+  const n = ((bytes[0]! << 8) | bytes[1]!) % 10000;
+  return String(n).padStart(4, "0");
 }
