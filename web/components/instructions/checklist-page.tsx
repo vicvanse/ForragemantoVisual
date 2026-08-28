@@ -39,7 +39,8 @@ function buildChecklist() {
     },
     {
       id: "fullscreen",
-      label: "Posso usar tela cheia (F11) durante a tarefa e sair com F11 no intervalo entre sessões",
+      label:
+        "Entendo que a tarefa deve ficar em tela cheia (F11) o tempo todo; se eu sair, o experimento pausa",
     },
     {
       id: "keyboard",
@@ -83,7 +84,7 @@ export function ChecklistPage({ onReady }: ChecklistPageProps) {
     try {
       await document.documentElement.requestFullscreen();
     } catch {
-      // Tela cheia opcional
+      // Se a API falhar, o participante pode usar F11; o experimento exige tela cheia.
     }
     onReady();
   }
@@ -120,8 +121,9 @@ export function ChecklistPage({ onReady }: ChecklistPageProps) {
 
       <div className="mt-6 space-y-3 rounded-xl border border-[#bae6fd] bg-[#ecfeff] p-4 text-sm text-[#0e7490]">
         <p>
-          <strong>Na tarefa:</strong> o cursor controla um ponteiro na tela (resposta de
-          observação). Pressione{" "}
+          <strong>Na tarefa:</strong> mantenha tela cheia (
+          <kbd className="rounded bg-white px-1.5 py-0.5 font-mono text-xs">F11</kbd>
+          ). Se sair, trocar de aba ou minimizar, o experimento pausa. Pressione{" "}
           <kbd className="rounded bg-white px-1.5 py-0.5 font-mono text-xs">Espaço</kbd>{" "}
           sobre o T para pontuar.
         </p>

@@ -1,8 +1,11 @@
 /**
  * Port de forrageamento_analysis_export.py — mesmas colunas e fórmulas.
  */
+import type { CursorSampleRow } from "./cursor-sampling";
 import type { Exp2EventRow, Exp2SummaryRow } from "./types";
 import type { Exp2SessionRow } from "./constants";
+
+const CURSOR_SAMPLE_INTERVAL_S = 0.05;
 
 export const EXP2_SUMMARY_ANALYSIS_FIELDNAMES = [
   "participant_id",
@@ -53,6 +56,32 @@ export const EXP2_DWELL_BIN_FIELDNAMES = [
   "points_total_end_bin",
   "n_reinforcement_left_cum",
   "n_reinforcement_right_cum",
+] as const;
+
+export const EXP2_VISIT_FIELDNAMES = [
+  "participant_id",
+  "experiment",
+  "session_condition",
+  "session_run",
+  "ratio_label",
+  "visit_index",
+  "side",
+  "t_enter_s",
+  "t_leave_s",
+  "duration_s",
+  "pause_s_during_visit",
+  "ended_by",
+  "n_L_left_enter",
+  "n_L_right_enter",
+  "n_L_left_leave",
+  "n_L_right_leave",
+  "points_before",
+  "points_after",
+  "t_since_last_reinforcement_s",
+  "reinforcements_during_visit",
+  "patch_time_before_inactive_s",
+  "inactive_dwell_before_cod_s",
+  "target_aoi_time_s",
 ] as const;
 
 export const EXP2_REINFORCEMENT_FIELDNAMES = [
@@ -238,6 +267,232 @@ function overlapDwell(
   return [0, dt];
 }
 
+function parsePausedSeconds(detail: string): number | null {
+  const m = /paused_s=([0-9.]+)/.exec(detail || "");
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) ? n : null;
+}
+
+function round6(n: number): number {
+  return Math.round(n * 1e6) / 1e6;
+}
+
+function normalizeSide(side: string): "left" | "right" {
+  return (side || "").trim().toLowerCase() === "right" ? "right" : "left";
+}
+
+interface OpenVisitState {
+  side: "left" | "right";
+  tEnter: number;
+  nLEnter: number;
+  nREnter: number;
+  pointsBefore: number;
+  tSinceLastReinf: number | "";
+  reinfCount: number;
+  pauseS: number;
+}
+
+function enrichVisitsWithCursorMetrics(
+  rows: Record<string, string | number>[],
+  cursorSamples: CursorSampleRow[],
+): void {
+  if (!rows.length || !cursorSamples.length) return;
+
+  const samples = [...cursorSamples].sort(
+    (a, b) => safeFloat(a.t_session_s) - safeFloat(b.t_session_s),
+  );
+
+  for (const row of rows) {
+    const side = normalizeSide(String(row.side));
+    const tEnter = safeFloat(row.t_enter_s);
+    const tLeave = safeFloat(row.t_leave_s);
+    const endedBy = String(row.ended_by || "");
+
+    let targetAoiTime = 0;
+    let firstInactiveT: number | null = null;
+
+    for (let i = 0; i < samples.length; i++) {
+      const sample = samples[i]!;
+      const t = safeFloat(sample.t_session_s);
+      if (t < tEnter) continue;
+      if (t > tLeave) break;
+      if (normalizeSide(sample.active_side) !== side) continue;
+
+      const nextT =
+        i + 1 < samples.length
+          ? Math.min(safeFloat(samples[i + 1]!.t_session_s), tLeave)
+          : Math.min(t + CURSOR_SAMPLE_INTERVAL_S, tLeave);
+      const dt = Math.max(0, nextT - t);
+
+      if (sample.in_target_aoi === 1) targetAoiTime += dt;
+      if (sample.in_inactive_half === 1 && firstInactiveT === null) {
+        firstInactiveT = t;
+      }
+    }
+
+    row.target_aoi_time_s = round6(targetAoiTime);
+
+    if (endedBy === "cod" && firstInactiveT !== null) {
+      row.patch_time_before_inactive_s = round6(Math.max(0, firstInactiveT - tEnter));
+      row.inactive_dwell_before_cod_s = round6(Math.max(0, tLeave - firstInactiveT));
+    }
+  }
+}
+
+export function buildExp2Visits(
+  eventRows: Exp2EventRow[],
+  cursorSamples: CursorSampleRow[] = [],
+): Record<string, string | number>[] {
+  if (!eventRows.length) return [];
+
+  const evs = [...eventRows].sort((a, b) => {
+    const dt = safeFloat(a.t_session_s) - safeFloat(b.t_session_s);
+    if (dt !== 0) return dt;
+    return safeFloat(a.event_index) - safeFloat(b.event_index);
+  });
+  const meta = evs[0]!;
+
+  const state = {
+    current: null as OpenVisitState | null,
+    lastReinfT: null as number | null,
+    pauseStartT: null as number | null,
+    visitIndex: 0,
+  };
+  const rows: Record<string, string | number>[] = [];
+
+  function startVisit(
+    side: "left" | "right",
+    tEnter: number,
+    nL: number,
+    nR: number,
+    points: number,
+  ): void {
+    state.current = {
+      side,
+      tEnter,
+      nLEnter: nL,
+      nREnter: nR,
+      pointsBefore: Math.trunc(points),
+      tSinceLastReinf:
+        state.lastReinfT !== null
+          ? round6(Math.max(0, tEnter - state.lastReinfT))
+          : "",
+      reinfCount: 0,
+      pauseS: 0,
+    };
+  }
+
+  function closeVisit(
+    tLeave: number,
+    endedBy: string,
+    nLLeave: number,
+    nRLeave: number,
+    pointsAfter: number,
+  ): void {
+    const visit = state.current;
+    if (!visit) return;
+
+    if (state.pauseStartT !== null) {
+      visit.pauseS += Math.max(0, tLeave - state.pauseStartT);
+      state.pauseStartT = null;
+    }
+
+    const duration = Math.max(0, tLeave - visit.tEnter - visit.pauseS);
+
+    rows.push({
+      participant_id: meta.participant_id,
+      experiment: meta.experiment,
+      session_condition: meta.session_condition,
+      session_run: meta.session_run,
+      ratio_label: meta.ratio_label,
+      visit_index: state.visitIndex,
+      side: visit.side,
+      t_enter_s: round6(visit.tEnter),
+      t_leave_s: round6(tLeave),
+      duration_s: round6(duration),
+      pause_s_during_visit: round6(visit.pauseS),
+      ended_by: endedBy,
+      n_L_left_enter: visit.nLEnter,
+      n_L_right_enter: visit.nREnter,
+      n_L_left_leave: nLLeave,
+      n_L_right_leave: nRLeave,
+      points_before: visit.pointsBefore,
+      points_after: Math.trunc(pointsAfter),
+      t_since_last_reinforcement_s: visit.tSinceLastReinf,
+      reinforcements_during_visit: visit.reinfCount,
+      patch_time_before_inactive_s: "",
+      inactive_dwell_before_cod_s: "",
+      target_aoi_time_s: "",
+    });
+    state.visitIndex++;
+    state.current = null;
+  }
+
+  for (const ev of evs) {
+    const t = safeFloat(ev.t_session_s);
+    const side = normalizeSide(ev.active_side);
+
+    if (ev.event_type === "reinforcement") {
+      state.lastReinfT = t;
+      if (state.current && t >= state.current.tEnter) state.current.reinfCount++;
+      continue;
+    }
+
+    if (ev.event_type === "session_pause") {
+      if (state.current && state.pauseStartT === null) state.pauseStartT = t;
+      continue;
+    }
+
+    if (ev.event_type === "session_resume") {
+      if (state.current && state.pauseStartT !== null) {
+        const pausedS = parsePausedSeconds(ev.detail);
+        state.current.pauseS += pausedS ?? Math.max(0, t - state.pauseStartT);
+        state.pauseStartT = null;
+      }
+      continue;
+    }
+
+    if (ev.event_type === "foraging_start") {
+      startVisit(side, t, ev.n_L_left, ev.n_L_right, ev.points_total);
+      continue;
+    }
+
+    if (ev.event_type === "cod_start") {
+      closeVisit(t, "cod", ev.n_L_left, ev.n_L_right, ev.points_total);
+      continue;
+    }
+
+    if (ev.event_type === "cod_end") {
+      startVisit(side, t, ev.n_L_left, ev.n_L_right, ev.points_total);
+      continue;
+    }
+
+    if (ev.event_type === "session_end") {
+      closeVisit(t, "session_end", ev.n_L_left, ev.n_L_right, ev.points_total);
+      continue;
+    }
+
+    if (ev.event_type === "session_abort") {
+      closeVisit(t, "session_abort", ev.n_L_left, ev.n_L_right, ev.points_total);
+    }
+  }
+
+  if (state.current) {
+    const lastT = safeFloat(evs[evs.length - 1]!.t_session_s);
+    closeVisit(
+      lastT,
+      "session_end",
+      evs[evs.length - 1]!.n_L_left,
+      evs[evs.length - 1]!.n_L_right,
+      evs[evs.length - 1]!.points_total,
+    );
+  }
+
+  enrichVisitsWithCursorMetrics(rows, cursorSamples);
+  return rows;
+}
+
 export function buildExp2DwellBins(
   eventRows: Exp2EventRow[],
   binS = 10,
@@ -375,21 +630,29 @@ export interface Exp2AnalysisExports {
   analysisCsv: string;
   reinforcementsCsv: string;
   dwellBinsCsv: string;
+  visitsCsv: string;
 }
 
 export function buildExp2AnalysisExports(
   eventRows: Exp2EventRow[],
   summary: Exp2SummaryRow,
   sessionRow?: Exp2SessionRow,
-  dwellBinS = 10,
+  opts?: {
+    dwellBinS?: number;
+    cursorSamples?: CursorSampleRow[];
+  },
 ): Exp2AnalysisExports {
+  const dwellBinS = opts?.dwellBinS ?? 10;
+  const cursorSamples = opts?.cursorSamples ?? [];
   const summaryA = enrichExp2SummaryAnalysis(summary, eventRows, sessionRow);
   const reinfRows = buildExp2ReinforcementRows(eventRows);
   const dwellRows = buildExp2DwellBins(eventRows, dwellBinS);
+  const visitRows = buildExp2Visits(eventRows, cursorSamples);
 
   return {
     analysisCsv: rowsToCsv([summaryA], EXP2_SUMMARY_ANALYSIS_FIELDNAMES),
     reinforcementsCsv: rowsToCsv(reinfRows, EXP2_REINFORCEMENT_FIELDNAMES),
     dwellBinsCsv: rowsToCsv(dwellRows, EXP2_DWELL_BIN_FIELDNAMES),
+    visitsCsv: rowsToCsv(visitRows, EXP2_VISIT_FIELDNAMES),
   };
 }

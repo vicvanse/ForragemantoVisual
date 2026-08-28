@@ -11,6 +11,7 @@ import { mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
 import type { ParticipantRecord } from "@/lib/research/participant-record";
 import { normalizeEmail } from "@/lib/research/participant-record";
+import { logApiWarn } from "@/lib/research/safe-api-log";
 
 export function emailToFileKey(email: string): string {
   return createHash("sha256").update(normalizeEmail(email)).digest("hex").slice(0, 32);
@@ -36,8 +37,32 @@ function localParticipantsDir(): string {
   return path.join(process.cwd(), "data", "online", "participants");
 }
 
-function localSubmissionsDir(): string {
-  return path.join(process.cwd(), "data", "online");
+function localBehaviorDir(): string {
+  return path.join(process.cwd(), "data", "online", "behavior");
+}
+
+function localConsentDir(): string {
+  return path.join(process.cwd(), "data", "online", "consent");
+}
+
+function storageBucketName(): string {
+  return process.env.SUPABASE_STORAGE_BUCKET || "forrageamento";
+}
+
+function safeStorageId(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
+/** Prefixo Storage: behavior/{baseName}/ */
+function behaviorStoragePrefix(baseName: string): string {
+  return `behavior/${safeStorageId(baseName)}`;
+}
+
+/** Prefixo Storage: consent/{participantId}/[{baseName}/] */
+function consentStoragePrefix(participantId: string, baseName?: string): string {
+  const pid = safeStorageId(participantId);
+  if (baseName) return `consent/${pid}/${safeStorageId(baseName)}`;
+  return `consent/${pid}`;
 }
 
 async function ensureDir(dir: string): Promise<void> {
@@ -128,6 +153,7 @@ export interface SubmissionFiles {
   analysisCsv?: string;
   reinforcementsCsv?: string;
   dwellBinsCsv?: string;
+  visitsCsv?: string;
   cursorSamplesCsv?: string;
   regionTransitionsCsv?: string;
   txtReport?: string;
@@ -153,6 +179,7 @@ export async function saveSubmission(files: SubmissionFiles): Promise<{ backend:
       analysis_csv: files.analysisCsv ?? null,
       reinforcements_csv: files.reinforcementsCsv ?? null,
       dwell_bins_csv: files.dwellBinsCsv ?? null,
+      visits_csv: files.visitsCsv ?? null,
       cursor_samples_csv: files.cursorSamplesCsv ?? null,
       region_transitions_csv: files.regionTransitionsCsv ?? null,
       txt_report: files.txtReport ?? null,
@@ -164,126 +191,168 @@ export async function saveSubmission(files: SubmissionFiles): Promise<{ backend:
     });
     if (error) throw new Error(`Supabase save submission: ${error.message}`);
 
-    // Arquivos espelhados no Storage (bucket privado) para download fácil
-    const bucket = process.env.SUPABASE_STORAGE_BUCKET || "forrageamento";
-    const prefix = `submissions/${files.baseName}`;
-    const uploads: Array<{ path: string; body: Buffer | string; contentType: string }> = [
+    // Storage: behavior/ e consent/ separados (bucket privado)
+    const bucket = storageBucketName();
+    const behaviorPrefix = behaviorStoragePrefix(files.baseName);
+    const consentPrefix = consentStoragePrefix(files.participantId, files.baseName);
+
+    const behaviorUploads: Array<{
+      path: string;
+      body: Buffer | string;
+      contentType: string;
+    }> = [
       {
-        path: `${prefix}_behavior.json`,
+        path: `${behaviorPrefix}/behavior.json`,
         body: JSON.stringify(files.behavior, null, 2),
         contentType: "application/json",
       },
     ];
     if (files.eventsCsv) {
-      uploads.push({
-        path: `${prefix}_exp2_events.csv`,
+      behaviorUploads.push({
+        path: `${behaviorPrefix}/exp2_events.csv`,
         body: files.eventsCsv,
         contentType: "text/csv",
       });
     }
     if (files.summaryCsv) {
-      uploads.push({
-        path: `${prefix}_exp2_summary.csv`,
+      behaviorUploads.push({
+        path: `${behaviorPrefix}/exp2_summary.csv`,
         body: files.summaryCsv,
         contentType: "text/csv",
       });
     }
     if (files.analysisCsv) {
-      uploads.push({
-        path: `${prefix}_exp2_analysis.csv`,
+      behaviorUploads.push({
+        path: `${behaviorPrefix}/exp2_analysis.csv`,
         body: files.analysisCsv,
         contentType: "text/csv",
       });
     }
     if (files.reinforcementsCsv) {
-      uploads.push({
-        path: `${prefix}_exp2_reinforcements.csv`,
+      behaviorUploads.push({
+        path: `${behaviorPrefix}/exp2_reinforcements.csv`,
         body: files.reinforcementsCsv,
         contentType: "text/csv",
       });
     }
     if (files.dwellBinsCsv) {
-      uploads.push({
-        path: `${prefix}_exp2_dwell_bins.csv`,
+      behaviorUploads.push({
+        path: `${behaviorPrefix}/exp2_dwell_bins.csv`,
         body: files.dwellBinsCsv,
         contentType: "text/csv",
       });
     }
+    if (files.visitsCsv) {
+      behaviorUploads.push({
+        path: `${behaviorPrefix}/exp2_visits.csv`,
+        body: files.visitsCsv,
+        contentType: "text/csv",
+      });
+    }
     if (files.cursorSamplesCsv) {
-      uploads.push({
-        path: `${prefix}_exp2_cursor_samples.csv`,
+      behaviorUploads.push({
+        path: `${behaviorPrefix}/exp2_cursor_samples.csv`,
         body: files.cursorSamplesCsv,
         contentType: "text/csv",
       });
     }
     if (files.regionTransitionsCsv) {
-      uploads.push({
-        path: `${prefix}_exp2_region_transitions.csv`,
+      behaviorUploads.push({
+        path: `${behaviorPrefix}/exp2_region_transitions.csv`,
         body: files.regionTransitionsCsv,
         contentType: "text/csv",
       });
     }
     if (files.txtReport) {
-      uploads.push({
-        path: `${prefix}_exp2.txt`,
+      behaviorUploads.push({
+        path: `${behaviorPrefix}/exp2.txt`,
         body: files.txtReport,
         contentType: "text/plain",
       });
     }
+
+    const consentUploads: Array<{
+      path: string;
+      body: Buffer | string;
+      contentType: string;
+    }> = [];
     if (files.consentTxt) {
-      uploads.push({
-        path: `${prefix}_consent.txt`,
+      consentUploads.push({
+        path: `${consentPrefix}/consent.txt`,
         body: files.consentTxt,
         contentType: "text/plain",
       });
     }
+    if (files.consentJson) {
+      consentUploads.push({
+        path: `${consentPrefix}/consent.json`,
+        body: JSON.stringify(files.consentJson, null, 2),
+        contentType: "application/json",
+      });
+    }
     if (files.signaturePng) {
-      uploads.push({
-        path: `${prefix}_signature.png`,
+      consentUploads.push({
+        path: `${consentPrefix}/signature.png`,
         body: files.signaturePng,
         contentType: "image/png",
       });
     }
 
-    for (const u of uploads) {
+    for (const u of [...behaviorUploads, ...consentUploads]) {
       const body = typeof u.body === "string" ? Buffer.from(u.body, "utf8") : u.body;
       const { error: upErr } = await sb.storage.from(bucket).upload(u.path, body, {
         contentType: u.contentType,
         upsert: true,
       });
-      // Storage opcional: não falha a submissão se o bucket ainda não existir
-      if (upErr) console.warn("Supabase storage upload:", upErr.message);
+      if (upErr) {
+        logApiWarn("Supabase storage upload", upErr.message, {
+          storagePath: u.path,
+          participantId: files.participantId,
+          baseName: files.baseName,
+        });
+      }
     }
 
     return { backend };
   }
 
-  const dir = localSubmissionsDir();
-  await ensureDir(dir);
-  const write = async (name: string, data: string | Buffer) => {
-    await writeFile(path.join(dir, name), data);
+  const behaviorDir = localBehaviorDir();
+  const consentDir = path.join(
+    localConsentDir(),
+    safeStorageId(files.participantId),
+    safeStorageId(files.baseName),
+  );
+  await ensureDir(behaviorDir);
+  await ensureDir(consentDir);
+
+  const writeBehavior = async (name: string, data: string | Buffer) => {
+    await writeFile(path.join(behaviorDir, `${files.baseName}_${name}`), data);
+  };
+  const writeConsent = async (name: string, data: string | Buffer) => {
+    await writeFile(path.join(consentDir, name), data);
   };
 
-  await write(`${files.baseName}_behavior.json`, JSON.stringify(files.behavior, null, 2));
-  if (files.consentTxt) await write(`${files.baseName}_consent.txt`, files.consentTxt);
+  await writeBehavior("behavior.json", JSON.stringify(files.behavior, null, 2));
+  if (files.consentTxt) await writeConsent("consent.txt", files.consentTxt);
   if (files.consentJson) {
-    await write(`${files.baseName}_consent.json`, JSON.stringify(files.consentJson, null, 2));
+    await writeConsent("consent.json", JSON.stringify(files.consentJson, null, 2));
   }
-  if (files.eventsCsv) await write(`${files.baseName}_exp2_events.csv`, files.eventsCsv);
-  if (files.summaryCsv) await write(`${files.baseName}_exp2_summary.csv`, files.summaryCsv);
-  if (files.analysisCsv) await write(`${files.baseName}_exp2_analysis.csv`, files.analysisCsv);
+  if (files.eventsCsv) await writeBehavior("exp2_events.csv", files.eventsCsv);
+  if (files.summaryCsv) await writeBehavior("exp2_summary.csv", files.summaryCsv);
+  if (files.analysisCsv) await writeBehavior("exp2_analysis.csv", files.analysisCsv);
   if (files.reinforcementsCsv) {
-    await write(`${files.baseName}_exp2_reinforcements.csv`, files.reinforcementsCsv);
+    await writeBehavior("exp2_reinforcements.csv", files.reinforcementsCsv);
   }
-  if (files.dwellBinsCsv) await write(`${files.baseName}_exp2_dwell_bins.csv`, files.dwellBinsCsv);
+  if (files.dwellBinsCsv) await writeBehavior("exp2_dwell_bins.csv", files.dwellBinsCsv);
+  if (files.visitsCsv) await writeBehavior("exp2_visits.csv", files.visitsCsv);
   if (files.cursorSamplesCsv) {
-    await write(`${files.baseName}_exp2_cursor_samples.csv`, files.cursorSamplesCsv);
+    await writeBehavior("exp2_cursor_samples.csv", files.cursorSamplesCsv);
   }
   if (files.regionTransitionsCsv) {
-    await write(`${files.baseName}_exp2_region_transitions.csv`, files.regionTransitionsCsv);
+    await writeBehavior("exp2_region_transitions.csv", files.regionTransitionsCsv);
   }
-  if (files.txtReport) await write(`${files.baseName}_exp2.txt`, files.txtReport);
-  if (files.signaturePng) await write(`${files.baseName}_signature.png`, files.signaturePng);
+  if (files.txtReport) await writeBehavior("exp2.txt", files.txtReport);
+  if (files.signaturePng) await writeConsent("signature.png", files.signaturePng);
 
   return { backend };
 }
@@ -293,20 +362,25 @@ export async function saveParticipantSignature(
   png: Buffer,
 ): Promise<void> {
   const backend = getStorageBackend();
+  const safeId = safeStorageId(participantId);
   if (backend === "supabase") {
     const sb = getSupabase();
-    const bucket = process.env.SUPABASE_STORAGE_BUCKET || "forrageamento";
-    const { error } = await sb.storage
-      .from(bucket)
-      .upload(`participants/${participantId}_signature.png`, png, {
-        contentType: "image/png",
-        upsert: true,
+    const bucket = storageBucketName();
+    const storagePath = `${consentStoragePrefix(participantId)}/signature.png`;
+    const { error } = await sb.storage.from(bucket).upload(storagePath, png, {
+      contentType: "image/png",
+      upsert: true,
+    });
+    if (error) {
+      logApiWarn("Supabase signature upload", error.message, {
+        participantId,
+        storagePath,
       });
-    if (error) console.warn("Supabase signature upload:", error.message);
+    }
     return;
   }
 
-  const dir = localParticipantsDir();
+  const dir = path.join(localConsentDir(), safeId);
   await ensureDir(dir);
-  await writeFile(path.join(dir, `${participantId}_signature.png`), png);
+  await writeFile(path.join(dir, "signature.png"), png);
 }

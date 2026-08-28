@@ -37,7 +37,7 @@ const STEPS: InstructionStep[] = [
       "Todas as letras aparecem em tons de cinza (sem cores de ajuda). O T muda de posição apenas quando você pontua na área visível.",
     ],
     tips: [
-      "Maximize a janela do navegador (F11 para tela cheia). No intervalo entre sessões, pressione F11 novamente para sair.",
+      "A tarefa deve ficar em tela cheia (F11). Se sair da tela cheia, trocar de aba ou minimizar, o experimento pausa até você voltar.",
     ],
     visual: "panel",
   },

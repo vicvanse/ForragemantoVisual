@@ -13,13 +13,16 @@ import { getTemplateForRatio } from "@/lib/experiment/session-sequence";
 import type { Exp2EventRow, Exp2SummaryRow } from "@/lib/experiment/types";
 import { buildConsentArchiveText } from "@/lib/research/consent-archive";
 import { saveSubmission } from "@/lib/research/data-store";
+import { logApiError } from "@/lib/research/safe-api-log";
 
 export async function POST(request: Request) {
+  let participantId = "unknown";
+  let baseName: string | undefined;
   try {
     const body = await request.json();
     const summary = body?.summary as Exp2SummaryRow | undefined;
     const events = (body?.events ?? []) as Exp2EventRow[];
-    const participantId = String(summary?.participant_id || "unknown");
+    participantId = String(summary?.participant_id || "unknown");
     const session = summary?.session_condition ?? 0;
     const sessionRun = summary?.session_run ?? 1;
     const sequenceIndex = body?.metadata?.sequenceIndex;
@@ -27,7 +30,7 @@ export async function POST(request: Request) {
     const ts = new Date().toISOString().replace(/[-:T.Z]/g, "").slice(0, 14);
 
     const safeId = participantId.replace(/[^a-zA-Z0-9_-]/g, "_");
-    const baseName = `forrageamento_online_exp2_${safeId}_s${session}_r${sessionRun}_${ts}`;
+    baseName = `forrageamento_online_exp2_${safeId}_s${session}_r${sessionRun}_${ts}`;
 
     const consent = body.consent;
     const cursorSamples = (body?.cursorSamples ?? []) as CursorSampleRow[];
@@ -49,7 +52,9 @@ export async function POST(request: Request) {
 
     const analysisExports =
       summary && events.length
-        ? buildExp2AnalysisExports(events, summary, sessionRow)
+        ? buildExp2AnalysisExports(events, summary, sessionRow, {
+            cursorSamples,
+          })
         : null;
 
     const txtReport =
@@ -92,6 +97,7 @@ export async function POST(request: Request) {
       analysisCsv: analysisExports?.analysisCsv,
       reinforcementsCsv: analysisExports?.reinforcementsCsv,
       dwellBinsCsv: analysisExports?.dwellBinsCsv,
+      visitsCsv: analysisExports?.visitsCsv,
       cursorSamplesCsv: cursorSamples.length ? cursorSamplesToCsv(cursorSamples) : undefined,
       regionTransitionsCsv: regionTransitions.length
         ? regionTransitionsToCsv(regionTransitions)
@@ -109,7 +115,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true, baseName, backend });
   } catch (err) {
-    console.error("Submit error:", err);
+    logApiError("Submit POST", err, { participantId, baseName });
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Erro ao salvar" },
       { status: 500 },

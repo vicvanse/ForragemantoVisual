@@ -27,6 +27,7 @@ create table if not exists public.submissions (
   analysis_csv text,
   reinforcements_csv text,
   dwell_bins_csv text,
+  visits_csv text,
   cursor_samples_csv text,
   region_transitions_csv text,
   txt_report text,
@@ -43,6 +44,9 @@ create index if not exists submissions_created_at_idx
   on public.submissions (created_at desc);
 
 -- Bucket privado para CSV/JSON/PNG (opcional, mas recomendado)
+-- Layout no Storage (prefixos separados):
+--   behavior/{baseName}/…   — eventos, summary, análises (sem PII)
+--   consent/{participantId}/[{baseName}/]… — TCLE, assinatura (identificável)
 insert into storage.buckets (id, name, public)
 values ('forrageamento', 'forrageamento', false)
 on conflict (id) do nothing;
@@ -57,6 +61,7 @@ alter table public.submissions enable row level security;
 -- alter table public.submissions add column if not exists analysis_csv text;
 -- alter table public.submissions add column if not exists reinforcements_csv text;
 -- alter table public.submissions add column if not exists dwell_bins_csv text;
+-- alter table public.submissions add column if not exists visits_csv text;
 -- alter table public.submissions add column if not exists cursor_samples_csv text;
 -- alter table public.submissions add column if not exists region_transitions_csv text;
 -- alter table public.submissions add column if not exists txt_report text;

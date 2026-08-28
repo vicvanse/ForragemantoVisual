@@ -13,6 +13,7 @@ import {
   saveParticipantSignature,
   writeParticipant,
 } from "@/lib/research/data-store";
+import { logApiError } from "@/lib/research/safe-api-log";
 
 export async function GET(request: Request) {
   try {
@@ -31,7 +32,7 @@ export async function GET(request: Request) {
       },
     });
   } catch (err) {
-    console.error("Participant GET error:", err);
+    logApiError("Participant GET", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Erro" },
       { status: 500 },
@@ -40,9 +41,10 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  let action = "unknown";
   try {
     const body = await request.json();
-    const action = String(body.action || "upsert");
+    action = String(body.action || "upsert");
     const email = normalizeEmail(String(body.email || ""));
     if (!email || !email.includes("@")) {
       return NextResponse.json({ error: "E-mail inválido" }, { status: 400 });
@@ -176,7 +178,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ error: "Ação desconhecida" }, { status: 400 });
   } catch (err) {
-    console.error("Participant API error:", err);
+    logApiError("Participant POST", err, { action });
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Erro" },
       { status: 500 },

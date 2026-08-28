@@ -334,9 +334,14 @@ export function ExperimentCanvas({
   const bgDirtyRef = useRef(true);
   const [ready, setReady] = useState(false);
   const [countdown, setCountdown] = useState(3);
+  const [paused, setPaused] = useState(false);
+  const [pauseReason, setPauseReason] = useState("focus");
   const stateRef = useRef<ReturnType<typeof createSessionState> | null>(null);
   const rafRef = useRef<number>(0);
   const completedRef = useRef(false);
+  const pausedRef = useRef(false);
+  const pauseStartedAtRef = useRef(0);
+  const tickFnRef = useRef<(() => void) | null>(null);
 
   const plannedDuration =
     durationS && durationS > 0 ? durationS : sessionRow.duration_s;
@@ -525,7 +530,170 @@ export function ExperimentCanvas({
       lastRegionKey: "",
       sampleIndex: 0,
       transitionIndex: 0,
+      pauseCount: 0,
     };
+  }
+
+  function isLikelyFullscreen(): boolean {
+    const doc = document as Document & {
+      webkitFullscreenElement?: Element | null;
+      mozFullScreenElement?: Element | null;
+      msFullscreenElement?: Element | null;
+    };
+    if (
+      doc.fullscreenElement ||
+      doc.webkitFullscreenElement ||
+      doc.mozFullScreenElement ||
+      doc.msFullscreenElement
+    ) {
+      return true;
+    }
+    // F11 / tela cheia do navegador (sem Fullscreen API)
+    const heightOk =
+      window.innerHeight >= screen.height * 0.92 ||
+      window.outerHeight >= screen.height - 12;
+    const widthOk =
+      window.innerWidth >= screen.width * 0.92 ||
+      window.outerWidth >= screen.width - 12;
+    return heightOk && widthOk;
+  }
+
+  function attentionOk(): boolean {
+    return !document.hidden && document.hasFocus() && isLikelyFullscreen();
+  }
+
+  function attentionFailReason(): string {
+    if (document.hidden) return "visibility_hidden";
+    if (!document.hasFocus()) return "window_blur";
+    if (!isLikelyFullscreen()) return "fullscreen_exit";
+    return "attention_lost";
+  }
+
+  async function enterFullscreen(): Promise<boolean> {
+    const el = containerRef.current;
+    if (!el) return isLikelyFullscreen();
+    if (isLikelyFullscreen()) return true;
+    const target = el as HTMLElement & {
+      webkitRequestFullscreen?: () => Promise<void> | void;
+      mozRequestFullScreen?: () => Promise<void> | void;
+      msRequestFullscreen?: () => Promise<void> | void;
+    };
+    try {
+      if (target.requestFullscreen) await target.requestFullscreen();
+      else if (target.webkitRequestFullscreen) await target.webkitRequestFullscreen();
+      else if (target.mozRequestFullScreen) await target.mozRequestFullScreen();
+      else if (target.msRequestFullscreen) await target.msRequestFullscreen();
+    } catch {
+      // Usuário pode usar F11 manualmente.
+    }
+    return isLikelyFullscreen();
+  }
+
+  function shiftSessionClocks(
+    state: NonNullable<typeof stateRef.current>,
+    pauseDurationS: number,
+  ) {
+    if (pauseDurationS <= 0) return;
+    state.sessionStart += pauseDurationS;
+    state.lastSplitT += pauseDurationS;
+    state.lastFrameT += pauseDurationS;
+    state.lastSampleAt += pauseDurationS;
+    if (state.codGreyUntil > 0) state.codGreyUntil += pauseDurationS;
+    if (state.inactiveDwellEntry !== null) {
+      state.inactiveDwellEntry += pauseDurationS;
+    }
+  }
+
+  function pauseExperiment(reason: string) {
+    if (pausedRef.current || completedRef.current) return;
+    const s = stateRef.current;
+    // Antes da sessão começar (countdown), só congela a UI.
+    if (!s?.running) {
+      pausedRef.current = true;
+      setPauseReason(reason);
+      setPaused(true);
+      return;
+    }
+
+    pausedRef.current = true;
+    pauseStartedAtRef.current = performance.now() / 1000;
+    setPauseReason(reason);
+    setPaused(true);
+
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = 0;
+    }
+
+    const tSess = Math.max(0, pauseStartedAtRef.current - s.sessionStart);
+    appendEvent(
+      s.events,
+      participantId,
+      sessionCondition,
+      sessionRun,
+      tSess,
+      "session_pause",
+      s.nLLeft,
+      s.nLRight,
+      s.pointsTotal,
+      s.activeSide,
+      ratioLabel,
+      reason,
+    );
+    s.pauseCount++;
+    s.spacePressed = false;
+    s.inactiveDwellEntry = null;
+  }
+
+  function resumeExperiment() {
+    if (!pausedRef.current || completedRef.current) return;
+    if (!attentionOk()) return;
+
+    const s = stateRef.current;
+    if (!s?.running) {
+      pausedRef.current = false;
+      pauseStartedAtRef.current = 0;
+      setPaused(false);
+      return;
+    }
+
+    const now = performance.now() / 1000;
+    const pauseDurationS = Math.max(0, now - pauseStartedAtRef.current);
+    shiftSessionClocks(s, pauseDurationS);
+
+    const tSess = Math.max(0, now - s.sessionStart);
+    appendEvent(
+      s.events,
+      participantId,
+      sessionCondition,
+      sessionRun,
+      tSess,
+      "session_resume",
+      s.nLLeft,
+      s.nLRight,
+      s.pointsTotal,
+      s.activeSide,
+      ratioLabel,
+      `paused_s=${Math.round(pauseDurationS * 1000) / 1000}`,
+    );
+
+    pausedRef.current = false;
+    pauseStartedAtRef.current = 0;
+    setPaused(false);
+    bgDirtyRef.current = true;
+
+    if (tickFnRef.current) {
+      rafRef.current = requestAnimationFrame(tickFnRef.current);
+    }
+  }
+
+  function evaluateAttentionGate() {
+    if (completedRef.current) return;
+    if (!attentionOk()) {
+      pauseExperiment(attentionFailReason());
+      return;
+    }
+    resumeExperiment();
   }
 
   const finishSession = useCallback(
@@ -669,10 +837,36 @@ export function ExperimentCanvas({
   }, []);
 
   useEffect(() => {
-    if (countdown <= 0) return;
+    if (countdown <= 0 || paused) return;
     const t = setTimeout(() => setCountdown((c) => c - 1), 1000);
     return () => clearTimeout(t);
-  }, [countdown]);
+  }, [countdown, paused]);
+
+  useEffect(() => {
+    function onGateEvent() {
+      evaluateAttentionGate();
+    }
+
+    document.addEventListener("visibilitychange", onGateEvent);
+    document.addEventListener("fullscreenchange", onGateEvent);
+    document.addEventListener("webkitfullscreenchange", onGateEvent as EventListener);
+    window.addEventListener("blur", onGateEvent);
+    window.addEventListener("focus", onGateEvent);
+    window.addEventListener("resize", onGateEvent);
+    // Estado inicial: exige tela cheia antes de começar.
+    evaluateAttentionGate();
+    void enterFullscreen();
+
+    return () => {
+      document.removeEventListener("visibilitychange", onGateEvent);
+      document.removeEventListener("fullscreenchange", onGateEvent);
+      document.removeEventListener("webkitfullscreenchange", onGateEvent as EventListener);
+      window.removeEventListener("blur", onGateEvent);
+      window.removeEventListener("focus", onGateEvent);
+      window.removeEventListener("resize", onGateEvent);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [countdown, participantId, sessionCondition, sessionRun, ratioLabel]);
 
   useEffect(() => {
     if (!ready || countdown > 0) return;
@@ -700,6 +894,11 @@ export function ExperimentCanvas({
     function tick() {
       const s = stateRef.current;
       if (!s || !ctx || !panelCache) return;
+      if (pausedRef.current || completedRef.current) return;
+      if (!attentionOk()) {
+        pauseExperiment(attentionFailReason());
+        return;
+      }
 
       const now = performance.now() / 1000;
       const tSess = now - s.sessionStart;
@@ -917,8 +1116,16 @@ export function ExperimentCanvas({
       rafRef.current = requestAnimationFrame(tick);
     }
 
-    rafRef.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafRef.current);
+    tickFnRef.current = tick;
+    if (attentionOk()) {
+      rafRef.current = requestAnimationFrame(tick);
+    } else {
+      pauseExperiment(attentionFailReason());
+    }
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      tickFnRef.current = null;
+    };
   }, [
     ready,
     countdown,
@@ -933,6 +1140,7 @@ export function ExperimentCanvas({
     function onKeyDown(e: KeyboardEvent) {
       if (e.code === "Space") {
         e.preventDefault();
+        if (pausedRef.current || completedRef.current) return;
         if (stateRef.current) stateRef.current.spacePressed = true;
       }
     }
@@ -974,6 +1182,7 @@ export function ExperimentCanvas({
     }
 
     function onPointerMove(e: PointerEvent) {
+      if (pausedRef.current) return;
       const events = e.getCoalescedEvents?.() ?? [e];
       const last = events[events.length - 1]!;
       updatePointerPosition(last.clientX, last.clientY);
@@ -1003,7 +1212,7 @@ export function ExperimentCanvas({
       ref={containerRef}
       className="relative h-[100dvh] w-full cursor-none touch-none bg-[#666]"
     >
-      {countdown > 0 && (
+      {countdown > 0 && !paused && (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/70 text-white">
           <p className="text-lg opacity-80">A sessão começa em</p>
           <p className="mt-2 text-6xl font-bold tabular-nums">{countdown}</p>
@@ -1011,6 +1220,33 @@ export function ExperimentCanvas({
             Mova o mouse para controlar o ponteiro na tela. Pressione Espaço sobre o T
             para pontuar.
           </p>
+        </div>
+      )}
+      {paused && (
+        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/90 px-6 text-center text-white">
+          <p className="text-2xl font-semibold">Experimento pausado</p>
+          <p className="mt-3 max-w-lg text-sm opacity-85">
+            {pauseReason === "fullscreen_exit"
+              ? "A tarefa precisa permanecer em tela cheia (F11). O tempo ficou congelado."
+              : "O tempo e a tarefa ficam congelados enquanto esta aba não estiver em foco e em tela cheia."}
+          </p>
+          <p className="mt-4 max-w-md text-sm opacity-70">
+            Pressione{" "}
+            <kbd className="rounded border border-white/30 bg-white/10 px-2 py-0.5 font-mono text-xs">
+              F11
+            </kbd>{" "}
+            ou use o botão abaixo para voltar à tela cheia e continuar.
+          </p>
+          <button
+            type="button"
+            className="mt-6 rounded-xl bg-[#0891b2] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#0e7490]"
+            onClick={async () => {
+              await enterFullscreen();
+              evaluateAttentionGate();
+            }}
+          >
+            Voltar à tela cheia
+          </button>
         </div>
       )}
       <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
