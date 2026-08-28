@@ -14,8 +14,8 @@ import { EmailGate } from "@/components/welcome/email-gate";
 import { isSessionValidCompletion } from "@/lib/experiment/session-sequence";
 import type {
   ConsentRecord,
-  Exp2EventRow,
   Exp2SummaryRow,
+  ExperimentCompletePayload,
   StudyStep,
 } from "@/lib/experiment/types";
 import { eventsToCsv, summaryToCsv } from "@/lib/experiment/types";
@@ -128,12 +128,14 @@ export function StudyFlow() {
 
   const submitResults = useCallback(
     async (
-      events: Exp2EventRow[],
-      summaryRow: Exp2SummaryRow,
+      payload: ExperimentCompletePayload,
       consentRecord: ConsentRecord,
       sequenceIndex: number,
     ) => {
       if (!participant) return { savedOk: false, record: participant };
+
+      const { events, summary: summaryRow, cursorSamples, regionTransitions } =
+        payload;
 
       setSubmitting(true);
       const valid = isSessionValidCompletion(
@@ -165,6 +167,8 @@ export function StudyFlow() {
             },
             events,
             summary: summaryRow,
+            cursorSamples,
+            regionTransitions,
             eventsCsv: eventsToCsv(events),
             summaryCsv: summaryToCsv(summaryRow),
           }),
@@ -214,16 +218,15 @@ export function StudyFlow() {
   );
 
   const handleExperimentComplete = useCallback(
-    async (events: Exp2EventRow[], summaryRow: Exp2SummaryRow) => {
-      setSummary(summaryRow);
+    async (payload: ExperimentCompletePayload) => {
+      setSummary(payload.summary);
       if (!consent || !participant || !nextSession) {
         setStep("complete");
         return;
       }
 
       const result = await submitResults(
-        events,
-        summaryRow,
+        payload,
         consent,
         nextSession.sequenceIndex,
       );
@@ -264,7 +267,7 @@ export function StudyFlow() {
       <ExperimentCanvas
         participantId={participant.participantId}
         sessionCondition={nextSession.session}
-        sessionRun={1}
+        sessionRun={nextSession.sessionRun ?? 1}
         sessionRow={{
           ...nextSession,
           duration_s: plannedDuration,

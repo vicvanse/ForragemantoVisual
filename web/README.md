@@ -31,12 +31,22 @@ http://localhost:3000?duration=60
 
 ## Dados
 
-Os resultados são salvos em `../data/online/`:
+**Local (dev):** `web/data/online/` (criado automaticamente).
 
-- `*_submission.json` — payload completo (consentimento + eventos + resumo)  
-- `*_exp2_events.csv` — eventos (compatível com PsychoPy)  
-- `*_exp2_summary.csv` — resumo da sessão  
-- `*_signature.png` — assinatura do TCLE  
+**Produção (Vercel):** use **Supabase** — o disco da Vercel é efêmero/read-only (`ENOENT mkdir /var/task/data`).
+
+1. Crie um projeto em [supabase.com](https://supabase.com)
+2. SQL Editor → execute `web/supabase/schema.sql`
+3. Settings → API → copie `URL` e `service_role`
+4. Na Vercel → Environment Variables:
+
+```
+SUPABASE_URL=https://xxxx.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=eyJ...
+SUPABASE_STORAGE_BUCKET=forrageamento
+```
+
+Tabelas: `participants` (progresso/TCLE) e `submissions` (eventos/CSV/assinatura). Arquivos também vão para o bucket Storage `forrageamento`.
 
 ## Interface
 

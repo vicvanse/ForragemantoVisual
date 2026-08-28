@@ -35,7 +35,16 @@ import {
   type PanelState,
 } from "@/lib/experiment/panel-builder";
 import { PythonRandom } from "@/lib/experiment/python-random";
-import type { Exp2EventRow, Exp2SummaryRow } from "@/lib/experiment/types";
+import type {
+  Exp2EventRow,
+  Exp2SummaryRow,
+  ExperimentCompletePayload,
+} from "@/lib/experiment/types";
+import {
+  classifyCursorRegions,
+  type CursorSampleRow,
+  type RegionTransitionRow,
+} from "@/lib/experiment/cursor-sampling";
 
 interface ExperimentCanvasProps {
   participantId: string;
@@ -43,7 +52,7 @@ interface ExperimentCanvasProps {
   sessionRun: number;
   sessionRow: Exp2SessionRow;
   durationS?: number;
-  onComplete: (events: Exp2EventRow[], summary: Exp2SummaryRow) => void;
+  onComplete: (payload: ExperimentCompletePayload) => void;
 }
 
 const BG_CSS = psychopyToCss([-0.4, -0.4, -0.4]);
@@ -54,6 +63,7 @@ const DOT_FILL_CSS = psychopyToCss(GAZE_DOT_FILL);
 const DOT_LINE_CSS = psychopyToCss(GAZE_DOT_LINE);
 const FIX_THR_S = TARGET_FIX_MS / 1000;
 const COD_GREY_S = DEFAULT_COD_GREY_MS / 1000;
+const CURSOR_SAMPLE_INTERVAL_S = 0.05;
 
 function canvasToPsychopy(
   canvasX: number,
@@ -93,6 +103,86 @@ function appendEvent(
     ratio_label: ratioLabel,
     detail,
   });
+}
+
+function recordCursorSample(
+  s: {
+    sw: number;
+    sh: number;
+    activeSide: "left" | "right";
+    leftPanel: PanelState;
+    rightPanel: PanelState;
+    inCodGrey: boolean;
+    gazeX: number;
+    gazeY: number;
+    cursorSamples: CursorSampleRow[];
+    regionTransitions: RegionTransitionRow[];
+    lastSampleAt: number;
+    lastRegionKey: string;
+    sampleIndex: number;
+    transitionIndex: number;
+  },
+  participantId: string,
+  sessionCondition: number,
+  sessionRun: number,
+  ratioLabel: string,
+  tSess: number,
+  now: number,
+): void {
+  if (now - s.lastSampleAt < CURSOR_SAMPLE_INTERVAL_S) return;
+  if (!Number.isFinite(s.gazeX) || !Number.isFinite(s.gazeY)) return;
+  s.lastSampleAt = now;
+
+  const regions = classifyCursorRegions(
+    s.gazeX,
+    s.gazeY,
+    s.sw,
+    s.sh,
+    s.activeSide,
+    s.leftPanel,
+    s.rightPanel,
+    s.inCodGrey,
+  );
+
+  if (regions.regionKey !== s.lastRegionKey) {
+    if (s.lastRegionKey) {
+      s.regionTransitions.push({
+        participant_id: participantId,
+        experiment: 2,
+        session_condition: sessionCondition,
+        session_run: sessionRun,
+        transition_index: s.transitionIndex,
+        t_session_s: Math.round(tSess * 1e6) / 1e6,
+        from_region: s.lastRegionKey,
+        to_region: regions.regionKey,
+        active_side: s.activeSide,
+        ratio_label: ratioLabel,
+      });
+      s.transitionIndex++;
+    }
+    s.lastRegionKey = regions.regionKey;
+  }
+
+  s.cursorSamples.push({
+    participant_id: participantId,
+    experiment: 2,
+    session_condition: sessionCondition,
+    session_run: sessionRun,
+    sample_index: s.sampleIndex,
+    t_session_s: Math.round(tSess * 1e6) / 1e6,
+    cursor_x: Math.round(s.gazeX * 1000) / 1000,
+    cursor_y: Math.round(s.gazeY * 1000) / 1000,
+    active_side: s.activeSide,
+    half_region: regions.halfRegion,
+    panel_visible_side: regions.panelVisibleSide,
+    in_target_aoi: regions.inTargetAoi ? 1 : 0,
+    target_side: regions.targetSide,
+    in_inactive_half: regions.inInactiveHalf ? 1 : 0,
+    in_cod_grey: s.inCodGrey ? 1 : 0,
+    ratio_label: ratioLabel,
+    mode: "online_mouse",
+  });
+  s.sampleIndex++;
 }
 
 /** Desenha letras no buffer offscreen (só quando o painel muda). */
@@ -361,6 +451,12 @@ export function ExperimentCanvas({
       timerFont: "",
       dotR: 4,
       inactiveSide: Math.max(36, 52 * sc),
+      cursorSamples: [] as CursorSampleRow[],
+      regionTransitions: [] as RegionTransitionRow[],
+      lastSampleAt: 0,
+      lastRegionKey: "",
+      sampleIndex: 0,
+      transitionIndex: 0,
     };
   }
 
@@ -416,7 +512,12 @@ export function ExperimentCanvas({
         correctkey_csv: sessionRow.correctkey,
       };
 
-      onComplete(state.events, summary);
+      onComplete({
+        events: state.events,
+        summary,
+        cursorSamples: state.cursorSamples,
+        regionTransitions: state.regionTransitions,
+      });
     },
     [
       onComplete,
@@ -515,9 +616,32 @@ export function ExperimentCanvas({
       const tSess = now - s.sessionStart;
 
       if (s.inCodGrey) {
+        recordCursorSample(
+          s,
+          participantId,
+          sessionCondition,
+          sessionRun,
+          ratioLabel,
+          tSess,
+          now,
+        );
         if (now >= s.codGreyUntil) {
           s.inCodGrey = false;
           s.activeSide = s.activeSide === "left" ? "right" : "left";
+          appendEvent(
+            s.events,
+            participantId,
+            sessionCondition,
+            sessionRun,
+            now - s.sessionStart,
+            "cod_end",
+            s.nLLeft,
+            s.nLRight,
+            s.pointsTotal,
+            s.activeSide,
+            ratioLabel,
+            "",
+          );
           s.inactiveDwellEntry = null;
           s.lastSplitT = now;
           s.panelDirty = true;
@@ -564,6 +688,16 @@ export function ExperimentCanvas({
       if (s.activeSide === "left") s.timeLeftS += dtSplit;
       else s.timeRightS += dtSplit;
 
+      recordCursorSample(
+        s,
+        participantId,
+        sessionCondition,
+        sessionRun,
+        ratioLabel,
+        tSess,
+        now,
+      );
+
       const gx = s.gazeX;
       const gy = s.gazeY;
       const inactive = s.activeSide === "left" ? "right" : "left";
@@ -580,7 +714,7 @@ export function ExperimentCanvas({
             participantId,
             sessionCondition,
             sessionRun,
-            now,
+            now - s.sessionStart,
             "cod_start",
             s.nLLeft,
             s.nLRight,

@@ -7,23 +7,35 @@ import {
   normalizeEmail,
   type ParticipantRecord,
 } from "@/lib/research/participant-record";
-import { readParticipant, writeParticipant } from "@/lib/research/participant-server";
+import {
+  readParticipant,
+  saveParticipantSignature,
+  writeParticipant,
+} from "@/lib/research/data-store";
 
 export async function GET(request: Request) {
-  const email = normalizeEmail(new URL(request.url).searchParams.get("email") || "");
-  if (!email || !email.includes("@")) {
-    return NextResponse.json({ error: "E-mail inválido" }, { status: 400 });
+  try {
+    const email = normalizeEmail(new URL(request.url).searchParams.get("email") || "");
+    if (!email || !email.includes("@")) {
+      return NextResponse.json({ error: "E-mail inválido" }, { status: 400 });
+    }
+    const record = await readParticipant(email);
+    if (!record) return NextResponse.json({ found: false });
+    return NextResponse.json({
+      found: true,
+      record: {
+        ...record,
+        nextSequenceIndex: nextPendingIndex(record),
+        studyComplete: isStudyComplete(record),
+      },
+    });
+  } catch (err) {
+    console.error("Participant GET error:", err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Erro" },
+      { status: 500 },
+    );
   }
-  const record = await readParticipant(email);
-  if (!record) return NextResponse.json({ found: false });
-  return NextResponse.json({
-    found: true,
-    record: {
-      ...record,
-      nextSequenceIndex: nextPendingIndex(record),
-      studyComplete: isStudyComplete(record),
-    },
-  });
 }
 
 export async function POST(request: Request) {
@@ -92,22 +104,13 @@ export async function POST(request: Request) {
         userAgent: consent.userAgent,
         hasSignature: Boolean(consent.signatureDataUrl),
       };
-      // Alinha código anônimo do consentimento ao ID estável do participante
       if (consent) consent.participantCode = existing.participantId;
       existing.updatedAt = new Date().toISOString();
       await writeParticipant(existing);
 
-      // Persistência da assinatura se enviada
       if (consent?.signatureDataUrl) {
-        const { mkdir, writeFile } = await import("fs/promises");
-        const path = await import("path");
-        const dir = path.join(process.cwd(), "..", "data", "online", "participants");
-        await mkdir(dir, { recursive: true });
         const b64 = String(consent.signatureDataUrl).replace(/^data:image\/png;base64,/, "");
-        await writeFile(
-          path.join(dir, `${existing.participantId}_signature.png`),
-          Buffer.from(b64, "base64"),
-        );
+        await saveParticipantSignature(existing.participantId, Buffer.from(b64, "base64"));
       }
 
       return NextResponse.json({

@@ -59,15 +59,13 @@ export function EmailGate({ onReady }: EmailGateProps) {
     >
       <div className="mb-6 space-y-3 text-sm leading-relaxed text-[#334155]">
         <p>
-          Bem-vindo(a)! Você usará o <strong>mouse</strong> para controlar um ponteiro na tela
-          (resposta de observação — não é eye-tracking).
+          Bem-vindo(a)! Você usará o <strong>mouse</strong> para controlar um ponteiro na tela.
         </p>
         <div className="rounded-xl border border-[#cbd8e8] bg-[#f0f6fc] p-4 text-[#0f2847]">
           <p className="mb-2 font-semibold">Como funciona</p>
           <ul className="list-disc space-y-1 pl-5 text-[#5a6b82]">
             <li>
-              São <strong>{nSessions} sessões</strong> com condições diferentes (começando e
-              terminando com a mesma quantidade de estímulos em cada lado).
+              São <strong>{nSessions} sessões</strong> com condições diferentes.
             </li>
             <li>Entre em com o mesmo e-mail para retomar de onde parou.</li>
             <li>

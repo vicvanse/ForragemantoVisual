@@ -73,11 +73,25 @@ export interface StudyMetadata {
   ipCollected: false;
 }
 
+import type {
+  CursorSampleRow,
+  RegionTransitionRow,
+} from "./cursor-sampling";
+
+export interface ExperimentCompletePayload {
+  events: Exp2EventRow[];
+  summary: Exp2SummaryRow;
+  cursorSamples: CursorSampleRow[];
+  regionTransitions: RegionTransitionRow[];
+}
+
 export interface SubmissionPayload {
   consent: ConsentRecord;
   metadata: StudyMetadata;
   events: Exp2EventRow[];
   summary: Exp2SummaryRow;
+  cursorSamples?: CursorSampleRow[];
+  regionTransitions?: RegionTransitionRow[];
 }
 
 export type StudyStep =

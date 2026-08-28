@@ -38,6 +38,22 @@ export function seededShuffle<T>(items: T[], seed: string): T[] {
 export interface PlannedSession extends Exp2SessionRow {
   /** Índice 0-based na sequência do participante. */
   sequenceIndex: number;
+  /** Repetição desta ratio_label na sequência (1, 2, …). */
+  sessionRun: number;
+}
+
+function sessionRunAt(labels: string[], index: number): number {
+  const label = labels[index];
+  if (!label) return 1;
+  let run = 0;
+  for (let i = 0; i <= index; i++) {
+    if (labels[i] === label) run++;
+  }
+  return run;
+}
+
+export function getTemplateForRatio(ratio: string): Omit<Exp2SessionRow, "session" | "duration_s"> {
+  return templateByRatio(ratio);
 }
 
 /**
@@ -82,6 +98,7 @@ export function buildParticipantSessionSequence(
     const t = templateByRatio(ratio_label);
     return {
       sequenceIndex,
+      sessionRun: sessionRunAt(labels, sequenceIndex),
       session: sequenceIndex + 1,
       ratio_label: t.ratio_label,
       w_esq: t.w_esq,
