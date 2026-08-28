@@ -40,11 +40,22 @@ Os resultados são salvos em `../data/online/`:
 
 ## Design (Vekon)
 
-Interface com tokens Vekon (`lib/vekon/tokens.ts`): tipografia Plus Jakarta Sans, cards, barra de progresso e componentes reutilizáveis.
+Interface **Vekon Research**: navy profundo, acentos ciano, cards em vidro, grid de fundo, tipografia Plus Jakarta Sans.
 
-## TCLE
+Tokens: `lib/vekon/tokens.ts` · Shell: `components/ui/vekon-shell.tsx`
 
-O texto em `components/consent/consent-page.tsx` é um **modelo**. Substitua pelo TCLE aprovado pelo CEP antes de coletar dados reais.
+## Ética e coleta online
+
+Alinhado à **Res. CNS 510/2016**, orientações **CONEP** para ambiente virtual e **LGPD**:
+
+- TCLE completo com seções obrigatórias
+- Download da cópia do TCLE (recomendação CONEP)
+- Código anônimo separado de nome/e-mail
+- IP **não** coletado
+- Checklist de privacidade e idade (18+)
+- Retenção de dados documentada (5 anos)
+
+Configure pesquisador e CEP em `web/.env.local` (copie de `.env.example`).
 
 ## Deploy
 

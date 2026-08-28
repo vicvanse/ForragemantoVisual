@@ -39,11 +39,20 @@ export interface Exp2SummaryRow {
 }
 
 export interface ConsentRecord {
+  tcleVersion: string;
+  participantCode: string;
   fullName: string;
   email: string;
+  minAge: number;
+  minAgeConfirmed: boolean;
   agreed: boolean;
+  lgpdAcknowledged: boolean;
+  withdrawAcknowledged: boolean;
+  consentCopyRequested: boolean;
   signatureDataUrl: string;
   signedAt: string;
+  timezone: string;
+  locale: string;
   userAgent: string;
 }
 
@@ -55,6 +64,11 @@ export interface StudyMetadata {
   mode: "online_mouse";
   viewportW: number;
   viewportH: number;
+  tcleVersion: string;
+  submittedAt: string;
+  platform: string;
+  /** IP não coletado — princípio de minimização (CONEP / LGPD). */
+  ipCollected: false;
 }
 
 export interface SubmissionPayload {

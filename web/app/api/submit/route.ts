@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "fs/promises";
 import path from "path";
 import { NextResponse } from "next/server";
+import { buildConsentArchiveText } from "@/lib/research/consent-archive";
 
 export async function POST(request: Request) {
   try {
@@ -15,11 +16,31 @@ export async function POST(request: Request) {
     const dataDir = path.join(process.cwd(), "..", "data", "online");
     await mkdir(dataDir, { recursive: true });
 
+    // Minimização: payload de tarefa sem repetir assinatura em base64 no JSON principal
+    const consent = body.consent;
+    const payloadForStorage = {
+      ...body,
+      consent: consent
+        ? {
+            ...consent,
+            signatureDataUrl: consent.signatureDataUrl ? "[stored_as_png]" : "",
+          }
+        : undefined,
+    };
+
     await writeFile(
       path.join(dataDir, `${baseName}_submission.json`),
-      JSON.stringify(body, null, 2),
+      JSON.stringify(payloadForStorage, null, 2),
       "utf8",
     );
+
+    if (consent) {
+      await writeFile(
+        path.join(dataDir, `${baseName}_consent.txt`),
+        buildConsentArchiveText(consent),
+        "utf8",
+      );
+    }
 
     if (body.eventsCsv) {
       await writeFile(
@@ -37,8 +58,8 @@ export async function POST(request: Request) {
       );
     }
 
-    if (body.consent?.signatureDataUrl) {
-      const sig = body.consent.signatureDataUrl as string;
+    if (consent?.signatureDataUrl) {
+      const sig = consent.signatureDataUrl as string;
       const b64 = sig.replace(/^data:image\/png;base64,/, "");
       await writeFile(
         path.join(dataDir, `${baseName}_signature.png`),

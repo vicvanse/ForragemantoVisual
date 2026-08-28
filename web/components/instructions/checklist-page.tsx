@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { VekonButton } from "@/components/ui/vekon-button";
 import { VekonCard } from "@/components/ui/vekon-card";
-import { vekon } from "@/lib/vekon/tokens";
+import { studyConfig } from "@/lib/research/study-config";
 
 interface ChecklistPageProps {
   onReady: () => void;
@@ -12,11 +12,19 @@ interface ChecklistPageProps {
 const CHECKLIST = [
   {
     id: "desktop",
-    label: "Estou usando um computador com mouse (não celular)",
+    label: "Estou usando computador com mouse (não celular ou tablet)",
+  },
+  {
+    id: "age",
+    label: `Confirmo ter ${studyConfig.minAge} anos ou mais`,
+  },
+  {
+    id: "private",
+    label: "Estou em local privado, onde ninguém verá minha tela sem meu consentimento",
   },
   {
     id: "quiet",
-    label: "Estou em um ambiente silencioso, sem interrupções previstas",
+    label: "Estou em ambiente silencioso, sem interrupções previstas",
   },
   {
     id: "fullscreen",
@@ -28,7 +36,11 @@ const CHECKLIST = [
   },
   {
     id: "time",
-    label: "Tenho cerca de 10 minutos livres (instruções + tarefa)",
+    label: `Tenho cerca de ${studyConfig.studyDurationMinutes} minutos livres`,
+  },
+  {
+    id: "withdraw",
+    label: "Sei que posso interromper a qualquer momento fechando esta página",
   },
 ];
 
@@ -44,49 +56,43 @@ export function ChecklistPage({ onReady }: ChecklistPageProps) {
     try {
       await document.documentElement.requestFullscreen();
     } catch {
-      // Fullscreen optional — continue anyway
+      // Tela cheia opcional
     }
     onReady();
   }
 
   return (
     <VekonCard
-      title="Antes de começar"
-      subtitle="Confirme os itens abaixo para garantir a qualidade dos dados."
+      kicker="Ambiente virtual"
+      title="Preparação e privacidade"
+      subtitle="Confirme os itens abaixo (orientações CONEP para coleta online)."
     >
       <ul className="space-y-3">
         {CHECKLIST.map((item) => (
           <li key={item.id}>
-            <label
-              className="flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition hover:bg-[#f8fafc]"
-              style={{ borderColor: vekon.colors.border }}
-            >
+            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[#cbd8e8] bg-white/50 p-4 transition hover:border-[#22d3ee]/35 hover:bg-white/80">
               <input
                 type="checkbox"
                 checked={!!checked[item.id]}
                 onChange={() => toggle(item.id)}
-                className="mt-0.5 h-4 w-4 rounded"
+                className="mt-0.5 h-4 w-4 rounded accent-[#0891b2]"
               />
-              <span className="text-sm" style={{ color: vekon.colors.text }}>
-                {item.label}
-              </span>
+              <span className="text-sm text-[#0c1524]">{item.label}</span>
             </label>
           </li>
         ))}
       </ul>
 
-      <div
-        className="mt-6 rounded-xl p-4 text-sm"
-        style={{ backgroundColor: vekon.colors.primaryLight, color: vekon.colors.primary }}
-      >
-        <strong>Dica:</strong> Durante a tarefa, o cursor será ocultado. Use o
-        ponto branco na tela para indicar onde está olhando. Pressione{" "}
-        <kbd className="rounded bg-white px-1.5 py-0.5 font-mono text-xs">Espaço</kbd>{" "}
-        sobre o T para pontuar.
+      <div className="mt-6 rounded-xl border border-[#bae6fd] bg-[#ecfeff] p-4 text-sm text-[#0e7490]">
+        <strong>Dica:</strong> O cursor será ocultado na tarefa. O ponto branco indica sua
+        atenção. Pressione{" "}
+        <kbd className="rounded bg-white px-1.5 py-0.5 font-mono text-xs">Espaço</kbd> sobre
+        o T para pontuar. Não coletamos endereço IP.
       </div>
 
       <VekonButton
         type="button"
+        variant="accent"
         size="lg"
         className="mt-6 w-full"
         disabled={!allChecked}

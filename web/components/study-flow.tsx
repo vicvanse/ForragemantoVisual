@@ -9,11 +9,8 @@ import { InstructionSteps } from "@/components/instructions/instruction-steps";
 import { VekonButton } from "@/components/ui/vekon-button";
 import { VekonCard } from "@/components/ui/vekon-card";
 import { VekonProgress } from "@/components/ui/vekon-progress";
-import {
-  pickSessionCondition,
-  sanitizeParticipantId,
-  type Exp2SessionRow,
-} from "@/lib/experiment/constants";
+import { VekonShell } from "@/components/ui/vekon-shell";
+import { pickSessionCondition, type Exp2SessionRow } from "@/lib/experiment/constants";
 import type {
   ConsentRecord,
   Exp2EventRow,
@@ -22,7 +19,7 @@ import type {
   SubmissionPayload,
 } from "@/lib/experiment/types";
 import { eventsToCsv, summaryToCsv } from "@/lib/experiment/types";
-import { vekon } from "@/lib/vekon/tokens";
+import { studyConfig } from "@/lib/research/study-config";
 
 function stepIndex(step: StudyStep): number {
   const map: Record<StudyStep, number> = {
@@ -36,22 +33,9 @@ function stepIndex(step: StudyStep): number {
   return map[step];
 }
 
-function makeParticipantId(consent: ConsentRecord): string {
-  const base = sanitizeParticipantId(
-    consent.fullName
-      .split(/\s+/)
-      .map((p) => p[0] || "")
-      .join("")
-      .toUpperCase() || "P",
-  );
-  const ts = new Date().toISOString().replace(/[-:T.Z]/g, "").slice(0, 14);
-  return sanitizeParticipantId(`${base}_${ts}`);
-}
-
 export function StudyFlow() {
   const [step, setStep] = useState<StudyStep>("welcome");
   const [consent, setConsent] = useState<ConsentRecord | null>(null);
-  const [participantId, setParticipantId] = useState("");
   const [sessionRow, setSessionRow] = useState<Exp2SessionRow | null>(null);
   const [summary, setSummary] = useState<Exp2SummaryRow | null>(null);
   const [saved, setSaved] = useState(false);
@@ -67,10 +51,8 @@ export function StudyFlow() {
   }, [isDev]);
 
   const handleConsent = useCallback((record: ConsentRecord) => {
-    const pid = makeParticipantId(record);
-    const session = pickSessionCondition(pid);
+    const session = pickSessionCondition(record.participantCode);
     setConsent(record);
-    setParticipantId(pid);
     setSessionRow(session);
     setStep("instructions");
   }, []);
@@ -80,7 +62,6 @@ export function StudyFlow() {
       events: Exp2EventRow[],
       summaryRow: Exp2SummaryRow,
       consentRecord: ConsentRecord,
-      session: Exp2SessionRow,
     ) => {
       setSubmitting(true);
       const payload: SubmissionPayload = {
@@ -93,6 +74,10 @@ export function StudyFlow() {
           mode: "online_mouse",
           viewportW: window.innerWidth,
           viewportH: window.innerHeight,
+          tcleVersion: studyConfig.tcleVersion,
+          submittedAt: new Date().toISOString(),
+          platform: studyConfig.platform.name,
+          ipCollected: false,
         },
         events,
         summary: summaryRow,
@@ -127,27 +112,26 @@ export function StudyFlow() {
     async (events: Exp2EventRow[], summaryRow: Exp2SummaryRow) => {
       setSummary(summaryRow);
       setStep("complete");
-      if (consent && sessionRow) {
-        await submitResults(events, summaryRow, consent, sessionRow);
+      if (consent) {
+        await submitResults(events, summaryRow, consent);
       }
     },
-    [consent, sessionRow, submitResults],
+    [consent, submitResults],
   );
 
   function handleRestart() {
     setStep("welcome");
     setConsent(null);
-    setParticipantId("");
     setSessionRow(null);
     setSummary(null);
     setSaved(false);
     setSaveError(undefined);
   }
 
-  if (step === "experiment" && sessionRow && participantId) {
+  if (step === "experiment" && sessionRow && consent) {
     return (
       <ExperimentCanvas
-        participantId={participantId}
+        participantId={consent.participantCode}
         sessionCondition={sessionRow.session}
         sessionRun={1}
         sessionRow={sessionRow}
@@ -158,106 +142,71 @@ export function StudyFlow() {
   }
 
   return (
-    <div className="min-h-[100dvh]" style={{ backgroundColor: vekon.colors.surface }}>
-      <header
-        className="border-b bg-white"
-        style={{ borderColor: vekon.colors.border, boxShadow: vekon.shadow.sm }}
-      >
-        <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-4 md:px-6">
-          <div className="flex items-center gap-3">
-            <div
-              className="flex h-10 w-10 items-center justify-center rounded-xl text-lg font-bold text-white"
-              style={{ backgroundColor: vekon.colors.primary }}
-            >
-              V
-            </div>
-            <div>
-              <p className="text-sm font-bold" style={{ color: vekon.colors.primary }}>
-                Vekon Research
-              </p>
-              <p className="text-xs" style={{ color: vekon.colors.textMuted }}>
-                Forrageamento Visual — Exp. 2
-              </p>
-            </div>
-          </div>
-          {step !== "complete" && (
-            <span
-              className="hidden rounded-full px-3 py-1 text-xs font-medium md:inline"
-              style={{ backgroundColor: vekon.colors.primaryLight, color: vekon.colors.primary }}
-            >
-              Online · Mouse
-            </span>
-          )}
+    <VekonShell badge={step !== "complete" ? "Online · Mouse" : undefined} showFooter>
+      {step !== "complete" && (
+        <div className="mb-8">
+          <VekonProgress currentStep={stepIndex(step)} />
         </div>
-      </header>
+      )}
 
-      <main className="mx-auto max-w-3xl px-4 py-8 md:px-6 md:py-12">
-        {step !== "complete" && (
-          <div className="mb-8">
-            <VekonProgress currentStep={stepIndex(step)} />
-          </div>
-        )}
-
-        {step === "welcome" && (
-          <VekonCard
-            title="Estudo de Forrageamento Visual"
-            subtitle="Participação online — duração aproximada de 10 minutos"
-          >
-            <div className="space-y-4 text-sm leading-relaxed" style={{ color: vekon.colors.text }}>
-              <p>
-                Bem-vindo(a)! Este estudo faz parte de uma pesquisa acadêmica sobre
-                atenção visual e tomada de decisão. Você realizará uma tarefa
-                interativa no navegador, usando o <strong>mouse</strong> para
-                indicar onde está olhando.
-              </p>
-              <p>O fluxo será:</p>
-              <ol className="list-decimal space-y-1 pl-5" style={{ color: vekon.colors.textMuted }}>
-                <li>Termo de consentimento (TCLE) com assinatura</li>
+      {step === "welcome" && (
+        <VekonCard
+          kicker="Pesquisa científica"
+          title="Estudo de Forrageamento Visual"
+          subtitle={`Participação remota · ~${studyConfig.studyDurationMinutes} minutos`}
+        >
+          <div className="space-y-4 text-sm leading-relaxed text-[#334155]">
+            <p>
+              Bem-vindo(a)! Este estudo investiga atenção visual e escolha em ambiente
+              online. Você usará o <strong>mouse</strong> para indicar onde está olhando.
+            </p>
+            <div className="rounded-xl border border-[#cbd8e8] bg-[#f0f6fc] p-4 text-[#0f2847]">
+              <p className="mb-2 font-semibold">Fluxo da sessão</p>
+              <ol className="list-decimal space-y-1 pl-5 text-[#5a6b82]">
+                <li>TCLE com assinatura digital e download da cópia</li>
                 <li>Instruções passo a passo</li>
-                <li>Verificação do ambiente</li>
-                <li>Tarefa principal (~7 min)</li>
+                <li>Verificação do ambiente e privacidade</li>
+                <li>Tarefa principal (~{studyConfig.taskDurationMinutes} min)</li>
               </ol>
             </div>
-            <VekonButton
-              type="button"
-              size="lg"
-              className="mt-8 w-full"
-              onClick={() => setStep("consent")}
-            >
-              Começar
-            </VekonButton>
-          </VekonCard>
-        )}
+            <p className="text-xs text-[#5a6b82]">
+              Seus dados são tratados conforme LGPD e Res. CNS 510/2016. Você pode
+              desistir a qualquer momento.
+            </p>
+          </div>
+          <VekonButton
+            type="button"
+            variant="accent"
+            size="lg"
+            className="mt-8 w-full"
+            onClick={() => setStep("consent")}
+          >
+            Começar
+          </VekonButton>
+        </VekonCard>
+      )}
 
-        {step === "consent" && <ConsentPage onSubmit={handleConsent} />}
+      {step === "consent" && <ConsentPage onSubmit={handleConsent} />}
 
-        {step === "instructions" && (
-          <InstructionSteps onComplete={() => setStep("checklist")} />
-        )}
+      {step === "instructions" && (
+        <InstructionSteps onComplete={() => setStep("checklist")} />
+      )}
 
-        {step === "checklist" && (
-          <ChecklistPage onReady={() => setStep("experiment")} />
-        )}
+      {step === "checklist" && <ChecklistPage onReady={() => setStep("experiment")} />}
 
-        {step === "complete" && summary && (
-          <CompletionPage
-            summary={summary}
-            saved={saved}
-            saveError={saveError}
-            onRestart={isDev ? handleRestart : undefined}
-          />
-        )}
+      {step === "complete" && summary && consent && (
+        <CompletionPage
+          summary={summary}
+          consent={consent}
+          saved={saved}
+          saveError={saveError}
+          onRestart={isDev ? handleRestart : undefined}
+        />
+      )}
 
-        {submitting && step === "complete" && (
-          <p className="mt-4 text-center text-sm" style={{ color: vekon.colors.textMuted }}>
-            Salvando dados…
-          </p>
-        )}
-      </main>
-
-      <footer className="pb-8 text-center text-xs" style={{ color: vekon.colors.textMuted }}>
-        Plataforma Vekon Research · Dados criptografados em trânsito
-      </footer>
-    </div>
+      {submitting && step === "complete" && (
+        <p className="mt-4 text-center text-sm text-[#5a6b82]">Salvando dados com segurança…</p>
+      )}
+    </VekonShell>
   );
 }

@@ -6,12 +6,10 @@ import { VekonCard } from "@/components/ui/vekon-card";
 import {
   INSTRUCTIONS_PREVIEW_BOX_FILL,
   INSTRUCTIONS_PREVIEW_BOX_LINE,
-  INSTRUCTIONS_PREVIEW_TARGET_GREEN,
   psychopyToCss,
 } from "@/lib/experiment/constants";
 import { buildInstructionExamplePanel } from "@/lib/experiment/panel-builder";
 import { PythonRandom } from "@/lib/experiment/python-random";
-import { vekon } from "@/lib/vekon/tokens";
 
 interface InstructionStepsProps {
   onComplete: () => void;
@@ -73,14 +71,11 @@ function ExamplePanelIllustration() {
             </text>
           ))}
         </svg>
-        <div
-          className="absolute -bottom-3 rounded-full px-3 py-1 text-xs font-medium text-white"
-          style={{ backgroundColor: vekon.colors.primary }}
-        >
+        <div className="absolute -bottom-3 rounded-full bg-[#0f2847] px-3 py-1 text-xs font-medium text-white">
           T verde = exemplo (na tarefa, tudo é cinza)
         </div>
       </div>
-      <p className="mt-5 text-center text-xs leading-relaxed" style={{ color: vekon.colors.textMuted }}>
+      <p className="mt-5 text-center text-xs leading-relaxed text-[#5a6b82]">
         O pequeno ponto branco segue seu mouse e representa sua atenção visual
       </p>
     </div>
@@ -93,11 +88,9 @@ export function InstructionSteps({ onComplete }: InstructionStepsProps) {
   const isLast = step === STEPS.length - 1;
 
   return (
-    <VekonCard title={current.title}>
+    <VekonCard kicker="Instruções" title={current.title}>
       <div className="mb-6 text-4xl">{current.icon}</div>
-      <p className="mb-8 text-base leading-relaxed" style={{ color: vekon.colors.text }}>
-        {current.body}
-      </p>
+      <p className="mb-8 text-base leading-relaxed text-[#334155]">{current.body}</p>
 
       {step === 1 && (
         <div className="mb-8">
@@ -121,7 +114,7 @@ export function InstructionSteps({ onComplete }: InstructionStepsProps) {
               key={i}
               className="h-2 w-2 rounded-full transition-colors"
               style={{
-                backgroundColor: i === step ? vekon.colors.accent : vekon.colors.border,
+                backgroundColor: i === step ? "#22d3ee" : "#cbd8e8",
               }}
             />
           ))}
@@ -129,6 +122,7 @@ export function InstructionSteps({ onComplete }: InstructionStepsProps) {
 
         <VekonButton
           type="button"
+          variant="accent"
           onClick={() => (isLast ? onComplete() : setStep((s) => s + 1))}
         >
           {isLast ? "Entendi, continuar" : "Próximo"}

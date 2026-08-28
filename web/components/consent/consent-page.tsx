@@ -1,23 +1,35 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { SignaturePad } from "@/components/consent/signature-pad";
 import { VekonButton } from "@/components/ui/vekon-button";
 import { VekonCard } from "@/components/ui/vekon-card";
 import { VekonInput } from "@/components/ui/vekon-input";
 import type { ConsentRecord } from "@/lib/experiment/types";
-import { vekon } from "@/lib/vekon/tokens";
+import { downloadConsentCopy, downloadTcleTemplate } from "@/lib/research/consent-export";
+import { generateAnonymousParticipantId } from "@/lib/research/participant-id";
+import { studyConfig } from "@/lib/research/study-config";
+import { getTcleSections } from "@/lib/research/tcle-content";
 
 interface ConsentPageProps {
   onSubmit: (consent: ConsentRecord) => void;
 }
 
 export function ConsentPage({ onSubmit }: ConsentPageProps) {
+  const sections = useMemo(() => getTcleSections(), []);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
   const [agreed, setAgreed] = useState(false);
+  const [lgpdAcknowledged, setLgpdAcknowledged] = useState(false);
+  const [withdrawAcknowledged, setWithdrawAcknowledged] = useState(false);
+  const [saveCopyAcknowledged, setSaveCopyAcknowledged] = useState(false);
   const [signature, setSignature] = useState("");
   const [error, setError] = useState("");
+
+  function handleDownloadTcleOnly() {
+    downloadTcleTemplate();
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -29,8 +41,16 @@ export function ConsentPage({ onSubmit }: ConsentPageProps) {
       setError("Informe um e-mail válido para contato.");
       return;
     }
-    if (!agreed) {
-      setError("É necessário marcar que leu e concorda com o termo.");
+    if (!ageConfirmed) {
+      setError(`Confirme que tem ${studyConfig.minAge} anos ou mais.`);
+      return;
+    }
+    if (!agreed || !lgpdAcknowledged || !withdrawAcknowledged) {
+      setError("Marque todas as declarações obrigatórias.");
+      return;
+    }
+    if (!saveCopyAcknowledged) {
+      setError("Confirme que guardará uma cópia deste termo (recomendação CONEP).");
       return;
     }
     if (!signature) {
@@ -38,70 +58,55 @@ export function ConsentPage({ onSubmit }: ConsentPageProps) {
       return;
     }
 
-    onSubmit({
+    const participantCode = generateAnonymousParticipantId();
+    const record: ConsentRecord = {
+      tcleVersion: studyConfig.tcleVersion,
+      participantCode,
       fullName: fullName.trim(),
       email: email.trim(),
+      minAge: studyConfig.minAge,
+      minAgeConfirmed: true,
       agreed: true,
+      lgpdAcknowledged: true,
+      withdrawAcknowledged: true,
+      consentCopyRequested: saveCopyAcknowledged,
       signatureDataUrl: signature,
       signedAt: new Date().toISOString(),
-      userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
-    });
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      locale: navigator.language,
+      userAgent: navigator.userAgent,
+    };
+
+    downloadConsentCopy(record);
+    onSubmit(record);
   }
 
   return (
     <VekonCard
+      kicker="Res. CNS 510/2016 · Ambiente virtual"
       title="Termo de Consentimento Livre e Esclarecido (TCLE)"
-      subtitle="Leia atentamente antes de participar. Este estudo investiga processos de busca visual em ambiente online."
+      subtitle={`Versão ${studyConfig.tcleVersion} — leia integralmente antes de consentir.`}
     >
-      <div
-        className="mb-6 max-h-72 overflow-y-auto rounded-xl border p-5 text-sm leading-relaxed"
-        style={{
-          borderColor: vekon.colors.border,
-          backgroundColor: vekon.colors.surface,
-          color: vekon.colors.text,
-        }}
-      >
-        <p className="mb-3 font-semibold">Objetivo</p>
-        <p className="mb-4">
-          Você foi convidado(a) a participar de um estudo de forrageamento visual
-          conduzido de forma remota. Sua participação consiste em localizar a
-          letra T entre distratores L, usando o mouse como indicador de atenção
-          visual, por aproximadamente 7 minutos.
-        </p>
+      <div className="mb-4 flex flex-wrap gap-2">
+        <VekonButton type="button" variant="secondary" size="sm" onClick={handleDownloadTcleOnly}>
+          Baixar TCLE (texto)
+        </VekonButton>
+        <span className="self-center text-xs text-[#5a6b82]">
+          Recomendado guardar uma cópia antes de assinar (CONEP).
+        </span>
+      </div>
 
-        <p className="mb-3 font-semibold">Procedimentos</p>
-        <p className="mb-4">
-          Após ler este termo e assinar digitalmente, você receberá instruções
-          sobre a tarefa. Os dados coletados incluem tempos de resposta, pontuação,
-          movimentos do mouse e eventos da sessão. Não coletamos imagem de rosto
-          nem gravação de áudio/vídeo.
-        </p>
-
-        <p className="mb-3 font-semibold">Riscos e desconfortos</p>
-        <p className="mb-4">
-          O procedimento apresenta risco mínimo, comparável ao uso habitual de
-          computador. Pode haver leve fadiga visual. Você pode interromper a
-          qualquer momento fechando a janela do navegador.
-        </p>
-
-        <p className="mb-3 font-semibold">Benefícios</p>
-        <p className="mb-4">
-          Não há benefício direto garantido. Os resultados contribuirão para pesquisa
-          científica em cognição e atenção visual.
-        </p>
-
-        <p className="mb-3 font-semibold">Confidencialidade</p>
-        <p className="mb-4">
-          Seus dados serão identificados por um código e armazenados de forma
-          segura, acessíveis apenas à equipe de pesquisa autorizada.
-        </p>
-
-        <p className="mb-3 font-semibold">Contato</p>
-        <p>
-          Em caso de dúvidas sobre o estudo ou seus direitos como participante,
-          entre em contato com o pesquisador responsável pelo e-mail informado no
-          convite de participação.
-        </p>
+      <div className="vekon-tcle-scroll mb-6 rounded-xl border border-[#cbd8e8] bg-white/70 p-5 text-sm leading-relaxed text-[#0c1524]">
+        {sections.map((section) => (
+          <section key={section.id} className="mb-5 last:mb-0">
+            <h3 className="mb-2 font-bold text-[#0f2847]">{section.title}</h3>
+            {section.paragraphs.map((p, i) => (
+              <p key={i} className="mb-2 last:mb-0 text-[#334155]">
+                {p}
+              </p>
+            ))}
+          </section>
+        ))}
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5">
@@ -111,6 +116,7 @@ export function ConsentPage({ onSubmit }: ConsentPageProps) {
           onChange={(e) => setFullName(e.target.value)}
           placeholder="Como consta no documento"
           autoComplete="name"
+          hint="Usado apenas para registro de consentimento, separado do código anônimo da tarefa."
         />
         <VekonInput
           label="E-mail"
@@ -119,40 +125,70 @@ export function ConsentPage({ onSubmit }: ConsentPageProps) {
           onChange={(e) => setEmail(e.target.value)}
           placeholder="seu@email.com"
           autoComplete="email"
-          hint="Usado apenas para contato, se necessário"
+          hint="Para contato da equipe de pesquisa, se necessário."
         />
 
-        <label className="flex cursor-pointer items-start gap-3 rounded-xl border p-4" style={{ borderColor: vekon.colors.border }}>
-          <input
-            type="checkbox"
-            checked={agreed}
-            onChange={(e) => setAgreed(e.target.checked)}
-            className="mt-1 h-4 w-4 rounded"
-          />
-          <span className="text-sm leading-relaxed" style={{ color: vekon.colors.text }}>
-            Declaro que li o Termo de Consentimento Livre e Esclarecido, tive
-            oportunidade de tirar dúvidas e concordo voluntariamente em participar
-            deste estudo online.
-          </span>
-        </label>
+        <CheckboxField
+          checked={ageConfirmed}
+          onChange={setAgeConfirmed}
+          label={`Declaro ter ${studyConfig.minAge} anos ou mais.`}
+        />
+        <CheckboxField
+          checked={agreed}
+          onChange={setAgreed}
+          label="Li o TCLE, tive oportunidade de esclarecer dúvidas e concordo voluntariamente em participar."
+        />
+        <CheckboxField
+          checked={lgpdAcknowledged}
+          onChange={setLgpdAcknowledged}
+          label="Fui informado(a) sobre o tratamento de dados pessoais conforme a LGPD e a Res. CNS 510/2016."
+        />
+        <CheckboxField
+          checked={withdrawAcknowledged}
+          onChange={setWithdrawAcknowledged}
+          label="Sei que posso recusar ou retirar meu consentimento a qualquer momento, sem prejuízo."
+        />
+        <CheckboxField
+          checked={saveCopyAcknowledged}
+          onChange={setSaveCopyAcknowledged}
+          label="Comprometo-me a guardar a cópia do TCLE que será baixada ao confirmar (ou já baixei acima)."
+        />
 
         <div>
-          <p className="mb-2 text-sm font-semibold" style={{ color: vekon.colors.text }}>
-            Assinatura digital
-          </p>
+          <p className="mb-2 text-sm font-semibold text-[#0c1524]">Assinatura digital</p>
           <SignaturePad onChange={setSignature} />
         </div>
 
         {error && (
-          <p className="rounded-lg px-4 py-3 text-sm" style={{ backgroundColor: vekon.colors.dangerBg, color: vekon.colors.danger }}>
-            {error}
-          </p>
+          <p className="rounded-xl bg-[#fef2f2] px-4 py-3 text-sm text-[#dc2626]">{error}</p>
         )}
 
-        <VekonButton type="submit" size="lg" className="w-full">
+        <VekonButton type="submit" variant="accent" size="lg" className="w-full">
           Concordo e desejo continuar
         </VekonButton>
       </form>
     </VekonCard>
+  );
+}
+
+function CheckboxField({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+}) {
+  return (
+    <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[#cbd8e8] bg-white/60 p-4 transition hover:border-[#22d3ee]/40">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-1 h-4 w-4 rounded accent-[#0891b2]"
+      />
+      <span className="text-sm leading-relaxed text-[#0c1524]">{label}</span>
+    </label>
   );
 }
