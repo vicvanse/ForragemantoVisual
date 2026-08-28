@@ -14,7 +14,7 @@ export interface TcleSection {
 function institutionHeader(): string[] {
   return [
     "Universidade de São Paulo",
-    "Instituto de Psicologia — Departamento de Psicologia Experimental",
+    "Instituto de Psicologia, Departamento de Psicologia Experimental",
     "Laboratório de Análise Experimental do Comportamento",
   ];
 }
@@ -84,7 +84,7 @@ export function getTcleSections(): TcleSection[] {
 export function getTclePlainText(): string {
   const sections = getTcleSections();
   const lines = [
-    "TERMO DE CONSENTIMENTO LIVRE E ESCLARECIDO (TCLE) — VERSÃO ONLINE",
+    "TERMO DE CONSENTIMENTO LIVRE E ESCLARECIDO (TCLE), VERSÃO ONLINE",
     `Versão: ${studyConfig.tcleVersion}`,
     "",
   ];

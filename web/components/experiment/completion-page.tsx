@@ -76,11 +76,6 @@ export function CompletionPage({
         <p>
           Código anônimo: <strong className="text-[#0c1524]">{summary.participant_id}</strong>
         </p>
-        {summary.ratio_label !== "—" && (
-          <p>
-            Condição: {summary.ratio_label} (sessão {summary.session_condition})
-          </p>
-        )}
         <p className="text-xs">
           Dados mantidos por no mínimo {studyConfig.platform.dataRetentionYears} anos, conforme
           protocolo CEP. Dúvidas: {studyConfig.researcher.email} ou {studyConfig.cep.email}.

@@ -18,7 +18,7 @@ export const tcleSimpleConsentLabel =
   "Li as informações acima e concordo em participar voluntariamente desta pesquisa.";
 
 export const cursorMethodologyNote =
-  "Nesta versão online, a posição do cursor controla um ponteiro na tela e revela qual região você está observando. Isso é uma resposta operante de observação explícita — não é eye-tracking e não deve ser interpretado como medida direta do movimento dos olhos.";
+  "Nesta versão online, a posição do cursor controla um ponteiro na tela e revela qual região você está observando. Isso é uma resposta operante de observação explícita; não é eye-tracking e não deve ser interpretado como medida direta do movimento dos olhos.";
 
 export function getOnlineResearchSections() {
   const c = studyConfig;
@@ -42,7 +42,7 @@ export function getOnlineResearchSections() {
           recordedDataFields.join("; ") +
           ".",
         "Dados de consentimento (nome, e-mail, assinatura, data/hora, fuso horário) são armazenados em arquivo separado dos dados comportamentais. O nome e o e-mail não entram nos arquivos de eventos da tarefa.",
-        "Metadados técnicos mínimos no registro de consentimento: idioma do navegador, user-agent (tipo/versão do navegador) e dimensões da janela — para diagnóstico técnico. Endereço IP não é coletado intencionalmente por esta aplicação.",
+        "Metadados técnicos mínimos no registro de consentimento: idioma do navegador, user-agent (tipo/versão do navegador) e dimensões da janela, para diagnóstico técnico. Endereço IP não é coletado intencionalmente por esta aplicação.",
       ],
     },
     {

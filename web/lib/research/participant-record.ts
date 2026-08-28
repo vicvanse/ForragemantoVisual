@@ -1,5 +1,6 @@
 import type { ConsentRecord } from "@/lib/experiment/types";
 import type { PlannedSession } from "@/lib/experiment/session-sequence";
+import { isSessionValidCompletion } from "@/lib/experiment/session-sequence";
 
 export interface CompletedSessionRecord {
   sequenceIndex: number;
@@ -9,9 +10,29 @@ export interface CompletedSessionRecord {
   duration_s_run: number;
   duration_s_planned: number;
   points_total: number;
+  aborted?: number;
   saved: boolean;
   valid: boolean;
   baseName?: string;
+}
+
+/** Sessão conta para avançar só se válida e salva (≥95% da duração, não abortada). */
+export function isCompletedSessionRecordValid(
+  entry: Pick<
+    CompletedSessionRecord,
+    "duration_s_run" | "duration_s_planned" | "aborted" | "valid" | "saved"
+  >,
+): boolean {
+  if (!entry.saved) return false;
+  return isSessionValidCompletion(
+    entry.duration_s_run,
+    entry.duration_s_planned,
+    entry.aborted ?? 0,
+  );
+}
+
+export function validCompletedSessions(record: ParticipantRecord): CompletedSessionRecord[] {
+  return record.completedSessions.filter((s) => isCompletedSessionRecordValid(s));
 }
 
 export interface ParticipantRecord {
@@ -37,7 +58,9 @@ export function normalizeEmail(email: string): string {
 
 export function nextPendingIndex(record: ParticipantRecord): number {
   const done = new Set(
-    record.completedSessions.filter((s) => s.valid && s.saved).map((s) => s.sequenceIndex),
+    record.completedSessions
+      .filter((s) => isCompletedSessionRecordValid(s))
+      .map((s) => s.sequenceIndex),
   );
   for (let i = 0; i < record.sequence.length; i++) {
     if (!done.has(i)) return i;

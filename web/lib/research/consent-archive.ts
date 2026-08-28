@@ -5,7 +5,7 @@ export function buildConsentArchiveText(record: ConsentRecord): string {
   return [
     getTclePlainText(),
     "",
-    "— REGISTRO DE CONSENTIMENTO —",
+    "REGISTRO DE CONSENTIMENTO",
     `Versão TCLE: ${record.tcleVersion}`,
     `Nome: ${record.fullName}`,
     `E-mail: ${record.email}`,

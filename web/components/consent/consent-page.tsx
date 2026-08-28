@@ -99,7 +99,7 @@ export function ConsentPage({
     <VekonCard
       kicker="CEP-IPUSP · Universidade de São Paulo"
       title="Termo de Consentimento Livre e Esclarecido (TCLE)"
-      subtitle={`Versão ${studyConfig.tcleVersion} — leia integralmente antes de consentir. A tarefa só inicia após o consentimento.`}
+      subtitle={`Versão ${studyConfig.tcleVersion}. Leia integralmente antes de consentir. A tarefa só inicia após o consentimento.`}
     >
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <a
@@ -199,7 +199,7 @@ export function ConsentPage({
         )}
 
         <VekonButton type="submit" variant="accent" size="lg" className="w-full">
-          Li as informações acima e concordo — continuar
+          Li as informações acima e concordo: continuar
         </VekonButton>
       </form>
     </VekonCard>

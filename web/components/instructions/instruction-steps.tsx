@@ -4,12 +4,10 @@ import { useMemo, useState } from "react";
 import { VekonButton } from "@/components/ui/vekon-button";
 import { VekonCard } from "@/components/ui/vekon-card";
 import {
-  COD_FIX_MS,
   INSTRUCTIONS_PREVIEW_BOX_FILL,
   INSTRUCTIONS_PREVIEW_BOX_LINE,
   INSTRUCTIONS_PREVIEW_TARGET_GREEN,
   psychopyToCss,
-  TARGET_FIX_MS,
 } from "@/lib/experiment/constants";
 import { buildInstructionExamplePanel } from "@/lib/experiment/panel-builder";
 import { PythonRandom } from "@/lib/experiment/python-random";
@@ -28,9 +26,6 @@ interface InstructionStep {
   visual?: "panel" | "layout" | "score" | "decay";
 }
 
-const COD_FIX_S = COD_FIX_MS / 1000;
-const TARGET_FIX_S = TARGET_FIX_MS / 1000;
-
 const STEPS: InstructionStep[] = [
   {
     id: "objetivo",
@@ -42,7 +37,7 @@ const STEPS: InstructionStep[] = [
       "Todas as letras aparecem em tons de cinza (sem cores de ajuda). O T muda de posição apenas quando você pontua na área visível.",
     ],
     tips: [
-      "Maximize a janela do navegador e mantenha o mouse livre para mover o ponteiro.",
+      "Maximize a janela do navegador (F11 para tela cheia). No intervalo entre sessões, pressione F11 novamente para sair.",
     ],
     visual: "panel",
   },
@@ -52,7 +47,7 @@ const STEPS: InstructionStep[] = [
     title: "Duas áreas, uma visível por vez",
     paragraphs: [
       "Existem **duas áreas** — esquerda e direita — mas **apenas uma fica visível** de cada vez (com letras L e T).",
-      `No lado **inativo**, você verá apenas um **quadrado cinza**. Para trocar de área, **mova o ponteiro** até esse quadrado e **mantenha-o lá por cerca de ${COD_FIX_S.toFixed(1)} s**. A tela piscará brevemente em cinza e a outra área passará a ficar visível.`,
+      "No lado **inativo**, você verá apenas um **quadrado cinza**. Para trocar de área, **mova o ponteiro** até esse quadrado e **mantenha-o lá**. A tela piscará brevemente em cinza e a outra área passará a ficar visível.",
       "Em **cada área** há um T diferente. Você só pode pontuar na área que está visível no momento.",
     ],
     tips: [
@@ -65,9 +60,9 @@ const STEPS: InstructionStep[] = [
     kicker: "Passo 3 de 5",
     title: "Como pontuar",
     paragraphs: [
-      `Localize o **T** entre os L na área visível. Posicione o **ponteiro sobre o T** e mantenha-o lá por pelo menos **${TARGET_FIX_S.toFixed(1)} s**.`,
+      "Localize o **T** entre os L na área visível. Posicione o **ponteiro sobre o T** e mantenha-o lá.",
       "Então pressione a tecla **ESPAÇO**. Cada acerto vale **1 ponto** (contador no topo da tela).",
-      "Se pressionar Espaço antes de completar o tempo sobre o T, **não haverá ponto**. Espere o ponteiro estabilizar sobre a letra antes de responder.",
+      "Se pressionar Espaço antes de o ponteiro estar estável sobre o T, **não haverá ponto**. Espere o ponteiro estabilizar sobre a letra antes de responder.",
     ],
     tips: [
       "O cursor fica oculto na tarefa; use o ponto branco como referência.",
@@ -81,7 +76,7 @@ const STEPS: InstructionStep[] = [
     paragraphs: [
       "Com o tempo, algumas letras **L desaparecem** aos poucos em **ambas** as áreas (mesmo a que não está visível). O **T não se move** até você pontuar.",
       "Quando você acerta na área visível, **só essa área** é reiniciada: os L voltam completos e o **T aparece em nova posição**. A outra área continua de onde estava (incluindo L já removidos).",
-      "Quanto mais pontos você fizer, melhor — equilibre buscar o T e trocar de área quando fizer sentido.",
+      "Tente ganhar o máximo de pontos possíveis.",
     ],
     visual: "decay",
   },
@@ -91,8 +86,8 @@ const STEPS: InstructionStep[] = [
     title: "Resumo antes de começar",
     paragraphs: [
       "**1. Buscar** — Encontre o T na área visível.",
-      `**2. Trocar** — Leve o ponteiro ao quadrado inativo (~${COD_FIX_S.toFixed(1)} s) para mudar de área.`,
-      `**3. Pontuar** — Mantenha o ponteiro sobre o T (~${TARGET_FIX_S.toFixed(1)} s) e pressione **ESPAÇO**.`,
+      "**2. Trocar** — Leve o ponteiro ao quadrado inativo e aguarde para mudar de área.",
+      "**3. Pontuar** — Mantenha o ponteiro sobre o T e pressione **ESPAÇO**.",
       "**4. Persistir** — Os L vão sumindo; após cada ponto, a área atual reinicia com T em novo lugar.",
     ],
     tips: [
@@ -187,7 +182,7 @@ function LayoutDiagram() {
           <div className="h-10 w-10 rounded border-2 border-[#888] bg-[#484848]" />
         </div>
         <p className="mt-2 text-center text-[10px] text-white/60">
-          Leve o ponteiro aqui ~{COD_FIX_S.toFixed(1)} s
+          Leve o ponteiro aqui e aguarde
         </p>
       </div>
     </div>
@@ -210,7 +205,7 @@ function ScoreDiagram() {
           2
         </span>
         <p className="text-sm text-[#334155]">
-          Aguarde ~{TARGET_FIX_S.toFixed(1)} s sobre a letra
+          Mantenha o ponteiro sobre a letra
         </p>
       </div>
       <div className="flex items-center gap-3">

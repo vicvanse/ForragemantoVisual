@@ -20,6 +20,7 @@ import type {
 } from "@/lib/experiment/types";
 import { eventsToCsv, summaryToCsv } from "@/lib/experiment/types";
 import type { ParticipantRecord } from "@/lib/research/participant-record";
+import { validCompletedSessions } from "@/lib/research/participant-record";
 import { studyConfig } from "@/lib/research/study-config";
 
 function stepIndex(step: StudyStep): number {
@@ -34,12 +35,6 @@ function stepIndex(step: StudyStep): number {
     complete: 5,
   };
   return map[step];
-}
-
-function breakRemainingMs(lastCompletedAt?: string): number {
-  if (!lastCompletedAt) return 0;
-  const elapsed = Date.now() - new Date(lastCompletedAt).getTime();
-  return Math.max(0, studyConfig.sessionPlan.interSessionBreakS * 1000 - elapsed);
 }
 
 function consentFromRecord(record: ParticipantRecord): ConsentRecord | null {
@@ -83,7 +78,7 @@ export function StudyFlow() {
   const handleParticipantReady = useCallback((record: ParticipantRecord) => {
     setParticipant(record);
     setConsent(consentFromRecord(record));
-    setSeenInstructions(record.completedSessions.some((s) => s.valid));
+    setSeenInstructions(validCompletedSessions(record).length > 0);
     if (!record.consentSigned) setStep("consent");
     else if (record.studyComplete) setStep("complete");
     else setStep("hub");
@@ -164,6 +159,7 @@ export function StudyFlow() {
               platform: studyConfig.platform.name,
               emailHashSkipped: true,
               ipCollected: false,
+              sessionValid: valid,
             },
             events,
             summary: summaryRow,
@@ -179,6 +175,12 @@ export function StudyFlow() {
         }
         const submitData = await res.json();
 
+        if (!valid) {
+          setSaved(true);
+          setInvalidSession(true);
+          return { savedOk: true, record: participant, valid: false };
+        }
+
         const progressRes = await fetch("/api/participant", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -193,8 +195,9 @@ export function StudyFlow() {
               duration_s_run: summaryRow.duration_s_run,
               duration_s_planned: summaryRow.duration_s_planned,
               points_total: summaryRow.points_total,
+              aborted: summaryRow.aborted,
               saved: true,
-              valid,
+              valid: true,
               baseName: submitData.baseName,
             },
           }),
@@ -204,8 +207,8 @@ export function StudyFlow() {
 
         setSaved(true);
         setParticipant(progressData.record);
-        setInvalidSession(!valid);
-        return { savedOk: true, record: progressData.record as ParticipantRecord, valid };
+        setInvalidSession(false);
+        return { savedOk: true, record: progressData.record as ParticipantRecord, valid: true };
       } catch (err) {
         setSaved(false);
         setSaveError(err instanceof Error ? err.message : "Erro desconhecido");
@@ -264,17 +267,24 @@ export function StudyFlow() {
 
   if (step === "experiment" && nextSession && participant) {
     return (
-      <ExperimentCanvas
-        participantId={participant.participantId}
-        sessionCondition={nextSession.session}
-        sessionRun={nextSession.sessionRun ?? 1}
-        sessionRow={{
-          ...nextSession,
-          duration_s: plannedDuration,
-        }}
-        durationS={plannedDuration}
-        onComplete={handleExperimentComplete}
-      />
+      <div className="relative">
+        <ExperimentCanvas
+          participantId={participant.participantId}
+          sessionCondition={nextSession.session}
+          sessionRun={nextSession.sessionRun ?? 1}
+          sessionRow={{
+            ...nextSession,
+            duration_s: plannedDuration,
+          }}
+          durationS={plannedDuration}
+          onComplete={handleExperimentComplete}
+        />
+        {submitting && (
+          <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/75 text-white">
+            <p className="text-2xl font-semibold">Salvando...</p>
+          </div>
+        )}
+      </div>
     );
   }
 
@@ -301,7 +311,7 @@ export function StudyFlow() {
         <SessionHub
           record={participant}
           nextSession={nextSession}
-          breakRemainingMs={breakRemainingMs(participant.lastSessionCompletedAt)}
+          lastSessionCompletedAt={participant.lastSessionCompletedAt}
           onNeedConsent={() => setStep("consent")}
           onStartNext={goToSessionPrep}
         />
@@ -332,12 +342,8 @@ export function StudyFlow() {
       {step === "intermission" && participant && nextSession && summary && (
         <IntermissionPage
           record={participant}
-          nextSession={nextSession}
           justCompleted={{
             points: summary.points_total,
-            durationS: summary.duration_s_run,
-            ratioLabel: summary.ratio_label,
-            sequenceIndex: summary.session_condition - 1,
           }}
           onContinue={() => {
             setSummary(null);
@@ -399,11 +405,11 @@ export function StudyFlow() {
           saveError={
             saveError ||
             (invalidSession
-              ? "A sessão não atingiu a duração completa. Entre novamente com o mesmo e-mail para refazer esta condição."
+              ? "A sessão não foi concluída por completo. Entre novamente com o mesmo e-mail para refazer esta sessão desde o início."
               : undefined)
           }
           studyComplete={participant.studyComplete}
-          progressLabel={`${participant.completedSessions.filter((s) => s.valid && s.saved).length}/${participant.sequence.length} sessões`}
+          progressLabel={`${validCompletedSessions(participant).length}/${participant.sequence.length} sessões`}
           onContinueLater={handleLeaveToWelcome}
           onRetrySession={
             invalidSession
@@ -419,8 +425,10 @@ export function StudyFlow() {
         />
       )}
 
-      {submitting && (
-        <p className="mt-4 text-center text-sm text-[#5a6b82]">Salvando dados com segurança…</p>
+      {submitting && step !== "experiment" && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/75 text-white">
+          <p className="text-2xl font-semibold">Salvando...</p>
+        </div>
       )}
     </VekonShell>
   );

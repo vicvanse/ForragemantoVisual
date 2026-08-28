@@ -12,7 +12,6 @@ import {
   EXP2_INACTIVE_SIDE_FILL,
   EXP2_INACTIVE_SIDE_LINE,
   GAZE_DOT_FILL,
-  GAZE_DOT_LINE,
   GAZE_DOT_RADIUS_PX,
   LAYOUT_MARGIN_X,
   LAYOUT_MARGIN_Y,
@@ -60,10 +59,10 @@ const BORDER_CSS = psychopyToCss([0.12, 0.12, 0.12]);
 const INACTIVE_FILL_CSS = psychopyToCss(EXP2_INACTIVE_SIDE_FILL);
 const INACTIVE_LINE_CSS = psychopyToCss(EXP2_INACTIVE_SIDE_LINE);
 const DOT_FILL_CSS = psychopyToCss(GAZE_DOT_FILL);
-const DOT_LINE_CSS = psychopyToCss(GAZE_DOT_LINE);
 const FIX_THR_S = TARGET_FIX_MS / 1000;
 const COD_GREY_S = DEFAULT_COD_GREY_MS / 1000;
 const CURSOR_SAMPLE_INTERVAL_S = 0.05;
+const MAX_DPR = 1;
 
 function canvasToPsychopy(
   canvasX: number,
@@ -72,6 +71,70 @@ function canvasToPsychopy(
   sh: number,
 ): [number, number] {
   return [canvasX - sw / 2, sh / 2 - canvasY];
+}
+
+function drawGazeDot(
+  ctx: CanvasRenderingContext2D,
+  gx: number,
+  gy: number,
+  sw: number,
+  sh: number,
+  dotR: number,
+): void {
+  if (!Number.isFinite(gx) || !Number.isFinite(gy)) return;
+  const dotX = gx + sw / 2;
+  const dotY = sh / 2 - gy;
+  ctx.beginPath();
+  ctx.arc(dotX, dotY, dotR, 0, Math.PI * 2);
+  ctx.fillStyle = DOT_FILL_CSS;
+  ctx.fill();
+}
+
+function paintBackgroundFrame(
+  ctx: CanvasRenderingContext2D,
+  s: {
+    sw: number;
+    sh: number;
+    sc: number;
+    activeSide: "left" | "right";
+    leftCx: number;
+    rightCx: number;
+    leftPanel: PanelState;
+    rightPanel: PanelState;
+    pointsHud: string;
+    hudText: string;
+    hudFont: string;
+    timerFont: string;
+    inCodGrey: boolean;
+  },
+  panelCache: HTMLCanvasElement,
+  panelDirty: boolean,
+): void {
+  if (s.inCodGrey) {
+    ctx.fillStyle = BG_CSS;
+    ctx.fillRect(0, 0, s.sw, s.sh);
+    return;
+  }
+
+  const activePanel = s.activeSide === "left" ? s.leftPanel : s.rightPanel;
+  if (panelDirty) {
+    paintPanelCache(panelCache, activePanel, s.sw, s.sh);
+  }
+
+  ctx.drawImage(panelCache, 0, 0, s.sw, s.sh);
+
+  const inactiveCx = s.activeSide === "left" ? s.rightCx : s.leftCx;
+  drawInactiveMarker(ctx, inactiveCx, 0, s.sc, s.sw, s.sh);
+
+  ctx.fillStyle = "rgb(242, 242, 140)";
+  ctx.font = s.hudFont;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText(s.pointsHud, s.sw / 2, s.sh * 0.08);
+
+  ctx.fillStyle = "rgba(255,255,255,0.55)";
+  ctx.font = s.timerFont;
+  ctx.fillText(s.hudText, s.sw / 2, s.sh * 0.94);
 }
 
 function appendEvent(
@@ -262,8 +325,13 @@ export function ExperimentCanvas({
   onComplete,
 }: ExperimentCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const dotCanvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const panelCacheRef = useRef<HTMLCanvasElement | null>(null);
+  const dotCtxRef = useRef<CanvasRenderingContext2D | null>(null);
+  const containerRectRef = useRef({ left: 0, top: 0, width: 0, height: 0 });
+  const dotRafRef = useRef(0);
+  const bgDirtyRef = useRef(true);
   const [ready, setReady] = useState(false);
   const [countdown, setCountdown] = useState(3);
   const stateRef = useRef<ReturnType<typeof createSessionState> | null>(null);
@@ -535,21 +603,38 @@ export function ExperimentCanvas({
 
     function resize() {
       const canvas = canvasRef.current;
-      if (!canvas || !container) return;
+      const dotCanvas = dotCanvasRef.current;
+      if (!canvas || !dotCanvas || !container) return;
       const rect = container.getBoundingClientRect();
-      // Cap DPR to keep redraws light on HiDPI screens.
-      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
       const cssW = Math.max(1, Math.floor(rect.width));
       const cssH = Math.max(1, Math.floor(rect.height));
-      canvas.style.width = `${cssW}px`;
-      canvas.style.height = `${cssH}px`;
-      canvas.width = Math.floor(cssW * dpr);
-      canvas.height = Math.floor(cssH * dpr);
+
+      containerRectRef.current = {
+        left: rect.left,
+        top: rect.top,
+        width: cssW,
+        height: cssH,
+      };
+
+      for (const c of [canvas, dotCanvas]) {
+        c.style.width = `${cssW}px`;
+        c.style.height = `${cssH}px`;
+        c.width = Math.floor(cssW * dpr);
+        c.height = Math.floor(cssH * dpr);
+      }
 
       const ctx = canvas.getContext("2d", { alpha: false });
       if (ctx) {
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.imageSmoothingEnabled = false;
+      }
+
+      const dotCtx = dotCanvas.getContext("2d", { alpha: true });
+      if (dotCtx) {
+        dotCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        dotCtx.imageSmoothingEnabled = false;
+        dotCtxRef.current = dotCtx;
       }
 
       if (!panelCacheRef.current) {
@@ -573,6 +658,7 @@ export function ExperimentCanvas({
         s.inactiveSide = Math.max(36, 52 * s.sc);
         s.panelDirty = true;
       }
+      bgDirtyRef.current = true;
       setReady(true);
     }
 
@@ -607,10 +693,13 @@ export function ExperimentCanvas({
     state.lastFrameT = state.sessionStart;
     state.running = true;
     state.panelDirty = true;
+    bgDirtyRef.current = true;
+
+    const panelCache = panelCacheRef.current;
 
     function tick() {
       const s = stateRef.current;
-      if (!s || !ctx) return;
+      if (!s || !ctx || !panelCache) return;
 
       const now = performance.now() / 1000;
       const tSess = now - s.sessionStart;
@@ -645,9 +734,12 @@ export function ExperimentCanvas({
           s.inactiveDwellEntry = null;
           s.lastSplitT = now;
           s.panelDirty = true;
+          bgDirtyRef.current = true;
         } else {
-          ctx.fillStyle = BG_CSS;
-          ctx.fillRect(0, 0, s.sw, s.sh);
+          if (bgDirtyRef.current) {
+            paintBackgroundFrame(ctx, s, panelCache, false);
+            bgDirtyRef.current = false;
+          }
           rafRef.current = requestAnimationFrame(tick);
           return;
         }
@@ -676,7 +768,10 @@ export function ExperimentCanvas({
         s.nextDecayAt += 1;
         decayed = true;
       }
-      if (decayed) s.panelDirty = true;
+      if (decayed) {
+        s.panelDirty = true;
+        bgDirtyRef.current = true;
+      }
 
       if (tSess >= s.plannedDuration) {
         finishSession(s, false);
@@ -727,8 +822,9 @@ export function ExperimentCanvas({
           s.inCodGrey = true;
           s.codGreyUntil = now + COD_GREY_S;
           s.inactiveDwellEntry = null;
-          ctx.fillStyle = BG_CSS;
-          ctx.fillRect(0, 0, s.sw, s.sh);
+          bgDirtyRef.current = true;
+          paintBackgroundFrame(ctx, s, panelCache, false);
+          bgDirtyRef.current = false;
           rafRef.current = requestAnimationFrame(tick);
           return;
         }
@@ -771,6 +867,7 @@ export function ExperimentCanvas({
         if (reinforced) {
           s.pointsTotal++;
           s.pointsHud = `Pontos: ${s.pointsTotal}`;
+          bgDirtyRef.current = true;
           if (reinforced === "left") {
             s.layoutPresIndex.left++;
             s.nLLeft = s.initialLeft;
@@ -800,28 +897,6 @@ export function ExperimentCanvas({
         }
       }
 
-      const cache = panelCacheRef.current;
-      if (cache && s.panelDirty) {
-        paintPanelCache(cache, activePanel, s.sw, s.sh);
-        s.panelDirty = false;
-      }
-
-      if (cache) {
-        ctx.drawImage(cache, 0, 0, s.sw, s.sh);
-      } else {
-        ctx.fillStyle = BG_CSS;
-        ctx.fillRect(0, 0, s.sw, s.sh);
-      }
-
-      const inactiveCx = s.activeSide === "left" ? s.rightCx : s.leftCx;
-      drawInactiveMarker(ctx, inactiveCx, 0, s.sc, s.sw, s.sh);
-
-      ctx.fillStyle = "rgb(242, 242, 140)";
-      ctx.font = s.hudFont;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "alphabetic";
-      ctx.fillText(s.pointsHud, s.sw / 2, s.sh * 0.08);
-
       const remaining = Math.max(0, s.plannedDuration - tSess);
       const secFloor = remaining | 0;
       if (secFloor !== s.lastHudSec) {
@@ -829,21 +904,14 @@ export function ExperimentCanvas({
         const mins = (secFloor / 60) | 0;
         const secs = secFloor % 60;
         s.hudText = `${mins}:${secs < 10 ? `0${secs}` : secs} restantes`;
+        bgDirtyRef.current = true;
       }
-      ctx.fillStyle = "rgba(255,255,255,0.55)";
-      ctx.font = s.timerFont;
-      ctx.fillText(s.hudText, s.sw / 2, s.sh * 0.94);
 
-      if (Number.isFinite(gx) && Number.isFinite(gy)) {
-        const dotX = gx + s.sw / 2;
-        const dotY = s.sh / 2 - gy;
-        ctx.beginPath();
-        ctx.arc(dotX, dotY, s.dotR, 0, Math.PI * 2);
-        ctx.fillStyle = DOT_FILL_CSS;
-        ctx.fill();
-        ctx.strokeStyle = DOT_LINE_CSS;
-        ctx.lineWidth = Math.max(1, 1.5 * s.sc);
-        ctx.stroke();
+      if (bgDirtyRef.current || s.panelDirty) {
+        const panelNeedsPaint = s.panelDirty;
+        paintBackgroundFrame(ctx, s, panelCache, panelNeedsPaint);
+        s.panelDirty = false;
+        bgDirtyRef.current = false;
       }
 
       rafRef.current = requestAnimationFrame(tick);
@@ -873,16 +941,42 @@ export function ExperimentCanvas({
   }, []);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const container = containerRef.current;
+    if (!container || !ready) return;
 
-    function onPointerMove(e: PointerEvent) {
+    function renderDotOverlay() {
+      dotRafRef.current = 0;
+      const s = stateRef.current;
+      const dotCtx = dotCtxRef.current;
+      if (!s || !dotCtx) return;
+      dotCtx.clearRect(0, 0, s.sw, s.sh);
+      drawGazeDot(dotCtx, s.gazeX, s.gazeY, s.sw, s.sh, s.dotR);
+    }
+
+    function scheduleDotRender() {
+      if (dotRafRef.current) return;
+      dotRafRef.current = requestAnimationFrame(renderDotOverlay);
+    }
+
+    function updatePointerPosition(clientX: number, clientY: number) {
       const state = stateRef.current;
       if (!state) return;
-      // offsetX/Y evita getBoundingClientRect a cada movimento.
-      const x = e.offsetX;
-      const y = e.offsetY;
-      [state.gazeX, state.gazeY] = canvasToPsychopy(x, y, state.sw, state.sh);
+      const rect = containerRectRef.current;
+      const x = clientX - rect.left;
+      const y = clientY - rect.top;
+      if (x < 0 || y < 0 || x > rect.width || y > rect.height) {
+        state.gazeX = Infinity;
+        state.gazeY = Infinity;
+      } else {
+        [state.gazeX, state.gazeY] = canvasToPsychopy(x, y, state.sw, state.sh);
+      }
+      scheduleDotRender();
+    }
+
+    function onPointerMove(e: PointerEvent) {
+      const events = e.getCoalescedEvents?.() ?? [e];
+      const last = events[events.length - 1]!;
+      updatePointerPosition(last.clientX, last.clientY);
     }
 
     function onPointerLeave() {
@@ -890,18 +984,25 @@ export function ExperimentCanvas({
         stateRef.current.gazeX = Infinity;
         stateRef.current.gazeY = Infinity;
       }
+      const dotCtx = dotCtxRef.current;
+      const s = stateRef.current;
+      if (dotCtx && s) dotCtx.clearRect(0, 0, s.sw, s.sh);
     }
 
-    canvas.addEventListener("pointermove", onPointerMove, { passive: true });
-    canvas.addEventListener("pointerleave", onPointerLeave);
+    container.addEventListener("pointermove", onPointerMove, { passive: true });
+    container.addEventListener("pointerleave", onPointerLeave);
     return () => {
-      canvas.removeEventListener("pointermove", onPointerMove);
-      canvas.removeEventListener("pointerleave", onPointerLeave);
+      container.removeEventListener("pointermove", onPointerMove);
+      container.removeEventListener("pointerleave", onPointerLeave);
+      if (dotRafRef.current) cancelAnimationFrame(dotRafRef.current);
     };
   }, [ready]);
 
   return (
-    <div ref={containerRef} className="relative h-[100dvh] w-full bg-[#666]">
+    <div
+      ref={containerRef}
+      className="relative h-[100dvh] w-full cursor-none touch-none bg-[#666]"
+    >
       {countdown > 0 && (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/70 text-white">
           <p className="text-lg opacity-80">A sessão começa em</p>
@@ -912,7 +1013,8 @@ export function ExperimentCanvas({
           </p>
         </div>
       )}
-      <canvas ref={canvasRef} className="h-full w-full cursor-none touch-none" />
+      <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
+      <canvas ref={dotCanvasRef} className="pointer-events-none absolute inset-0 h-full w-full" />
     </div>
   );
 }

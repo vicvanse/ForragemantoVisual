@@ -3,6 +3,7 @@ import { buildParticipantSessionSequence } from "@/lib/experiment/session-sequen
 import { generateAnonymousParticipantId } from "@/lib/research/participant-id";
 import {
   isStudyComplete,
+  isCompletedSessionRecordValid,
   nextPendingIndex,
   normalizeEmail,
   type ParticipantRecord,
@@ -129,18 +130,46 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Participante não encontrado" }, { status: 404 });
       }
       const completion = body.completion;
+      const entry = {
+        sequenceIndex: Number(completion.sequenceIndex),
+        session: Number(completion.session),
+        ratio_label: String(completion.ratio_label || ""),
+        completedAt: String(completion.completedAt || new Date().toISOString()),
+        duration_s_run: Number(completion.duration_s_run),
+        duration_s_planned: Number(completion.duration_s_planned),
+        points_total: Number(completion.points_total),
+        aborted: Number(completion.aborted ?? 0),
+        saved: completion.saved !== false,
+        valid: false,
+        baseName: completion.baseName ? String(completion.baseName) : undefined,
+      };
+      entry.valid = isCompletedSessionRecordValid(entry);
+
+      if (!entry.valid) {
+        return NextResponse.json({
+          ok: true,
+          progressUpdated: false,
+          record: {
+            ...existing,
+            nextSequenceIndex: nextPendingIndex(existing),
+            studyComplete: isStudyComplete(existing),
+          },
+        });
+      }
+
       existing.completedSessions = existing.completedSessions.filter(
-        (s) => s.sequenceIndex !== completion.sequenceIndex,
+        (s) => s.sequenceIndex !== entry.sequenceIndex,
       );
-      existing.completedSessions.push(completion);
+      existing.completedSessions.push(entry);
       existing.completedSessions.sort((a, b) => a.sequenceIndex - b.sequenceIndex);
-      existing.lastSessionCompletedAt = completion.completedAt;
+      existing.lastSessionCompletedAt = entry.completedAt;
       existing.nextSequenceIndex = nextPendingIndex(existing);
       existing.studyComplete = isStudyComplete(existing);
       existing.updatedAt = new Date().toISOString();
       await writeParticipant(existing);
       return NextResponse.json({
         ok: true,
+        progressUpdated: true,
         record: existing,
       });
     }

@@ -1,9 +1,12 @@
 "use client";
 
+import { BreakCountdown, useBreakRemainingMs } from "@/components/experiment/break-countdown";
+import { ParticipantSessionHistory } from "@/components/experiment/participant-session-history";
 import { VekonButton } from "@/components/ui/vekon-button";
 import { VekonCard } from "@/components/ui/vekon-card";
 import type { PlannedSession } from "@/lib/experiment/session-sequence";
 import type { ParticipantRecord } from "@/lib/research/participant-record";
+import { validCompletedSessions } from "@/lib/research/participant-record";
 import { studyConfig } from "@/lib/research/study-config";
 
 interface SessionHubProps {
@@ -11,7 +14,7 @@ interface SessionHubProps {
   nextSession: PlannedSession | null;
   onStartNext: () => void;
   onNeedConsent: () => void;
-  breakRemainingMs: number;
+  lastSessionCompletedAt?: string;
 }
 
 export function SessionHub({
@@ -19,10 +22,11 @@ export function SessionHub({
   nextSession,
   onStartNext,
   onNeedConsent,
-  breakRemainingMs,
+  lastSessionCompletedAt,
 }: SessionHubProps) {
-  const done = record.completedSessions.filter((s) => s.valid && s.saved).length;
+  const done = validCompletedSessions(record).length;
   const total = record.sequence.length;
+  const breakRemainingMs = useBreakRemainingMs(lastSessionCompletedAt);
   const breakReady = breakRemainingMs <= 0;
 
   if (record.studyComplete || !nextSession) {
@@ -46,31 +50,25 @@ export function SessionHub({
   return (
     <VekonCard
       kicker={`Sessão ${nextSession.sequenceIndex + 1} de ${total}`}
-      title="Pronto para a próxima tarefa?"
-      subtitle={`Condição ${nextSession.ratio_label} · ~${Math.round(nextSession.duration_s / 60)} min`}
+      title={breakReady || done === 0 ? "Pronto para a próxima tarefa?" : "Intervalo entre sessões"}
+      subtitle={
+        breakReady || done === 0
+          ? `~${Math.round(nextSession.duration_s / 60)} min`
+          : `Aguarde antes de iniciar a próxima sessão.`
+      }
     >
       <div className="mb-6 space-y-3 text-sm text-[#334155]">
-        <p>
-          Progresso salvo: <strong>{done}/{total}</strong>
-        </p>
-        <ol className="max-h-40 space-y-1 overflow-y-auto rounded-xl border border-[#cbd8e8] bg-white/60 p-3 text-xs text-[#5a6b82]">
-          {record.sequence.map((s) => {
-            const c = record.completedSessions.find(
-              (x) => x.sequenceIndex === s.sequenceIndex && x.valid && x.saved,
-            );
-            return (
-              <li key={s.sequenceIndex}>
-                {c ? "✓" : s.sequenceIndex === nextSession.sequenceIndex ? "→" : "·"} Sessão{" "}
-                {s.sequenceIndex + 1}: {s.ratio_label}
-                {c ? ` (${c.points_total} pts)` : ""}
-              </li>
-            );
-          })}
-        </ol>
-        {!breakReady && (
-          <p className="rounded-xl border border-[#fcd34d] bg-[#fffbeb] px-4 py-3 text-[#92400e]">
-            Intervalo obrigatório ainda em andamento. Aguarde ou volte mais tarde.
-          </p>
+        <ParticipantSessionHistory
+          record={record}
+          nextSequenceIndex={nextSession.sequenceIndex}
+        />
+        {!breakReady && done > 0 && (
+          <>
+            <BreakCountdown lastSessionCompletedAt={lastSessionCompletedAt} />
+            <p className="rounded-xl border border-[#fcd34d] bg-[#fffbeb] px-4 py-3 text-sm text-[#92400e]">
+              Intervalo obrigatório ainda em andamento. Aguarde o tempo acima ou volte mais tarde.
+            </p>
+          </>
         )}
       </div>
 
@@ -87,7 +85,7 @@ export function SessionHub({
           disabled={!breakReady && done > 0}
           onClick={onStartNext}
         >
-          {done === 0 ? "Começar primeira sessão" : "Continuar"}
+          {done === 0 ? "Começar primeira sessão" : breakReady ? "Continuar" : "Aguarde o intervalo…"}
         </VekonButton>
       )}
     </VekonCard>

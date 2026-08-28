@@ -39,7 +39,7 @@ function buildChecklist() {
     },
     {
       id: "fullscreen",
-      label: "Posso maximizar a janela do navegador durante a tarefa",
+      label: "Posso usar tela cheia (F11) durante a tarefa e sair com F11 no intervalo entre sessões",
     },
     {
       id: "keyboard",
